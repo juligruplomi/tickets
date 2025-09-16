@@ -1,0 +1,39 @@
+# Variables de entorno (contiene passwords)
+.env
+*.env
+.env.*
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Base de datos local
+*.db
+*.sqlite
+*.sqlite3
+
+# Claves SSH
+*.pub
+github_actions_key
+id_rsa*
+*.pem
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Archivos de upload temporales
+uploads/
+temp/

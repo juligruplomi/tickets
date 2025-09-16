@@ -1,111 +1,140 @@
 import os
-import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import uvicorn
 from dotenv import load_dotenv
-
-# Importar routers
-from routers import auth, profile, roles, usuarios, tickets, config
-from models.db import create_db_and_tables
-from models.role import ensure_base_roles
-from models.user import create_usuario
-from models.site_config import init_default_config
-from utils.limiter import limiter
-from slowapi import SlowApi
-from slowapi.middleware import SlowAPIMiddleware
 
 # Cargar variables de entorno
 load_dotenv()
 
+# Importar solo los routers que existen
+try:
+    from routers.auth import router as auth_router
+    auth_available = True
+except ImportError:
+    auth_available = False
+    print("⚠️  Router auth no encontrado")
+
+try:
+    from routers.tickets import router as tickets_router
+    tickets_available = True
+except ImportError:
+    tickets_available = False
+    print("⚠️  Router tickets no encontrado")
+
+try:
+    from routers.usuarios import router as usuarios_router
+    usuarios_available = True
+except ImportError:
+    usuarios_available = False
+    print("⚠️  Router usuarios no encontrado")
+
+try:
+    from routers.config import router as config_router
+    config_available = True
+except ImportError:
+    config_available = False
+    print("⚠️  Router config no encontrado")
+
+from models.db import engine, Base
+
+# Crear tablas al iniciar la aplicación
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicialización al arrancar
-    print("🚀 Iniciando sistema de gestión de gastos...")
-    create_db_and_tables()
-    ensure_base_roles()
-    init_default_config()
-    
-    # Crear super admin si no existe
-    superadmin_email = os.getenv("SEED_SUPERADMIN_EMAIL", "admin@gruplomi.com")
-    superadmin_password = os.getenv("SEED_SUPERADMIN_PASSWORD", "AdminSecure123!")
+    # Startup
+    print("🚀 Iniciando servidor...")
+    print("📊 Verificando conexión a base de datos...")
     
     try:
-        create_usuario(
-            email=superadmin_email,
-            password=superadmin_password,
-            rol="admin",
-            first_name="Super",
-            last_name="Admin",
-            employee_code="ADMIN001"
-        )
-        print(f"✅ Super admin creado: {superadmin_email}")
+        # Crear tablas si no existen
+        Base.metadata.create_all(bind=engine)
+        print("✅ Base de datos conectada correctamente")
     except Exception as e:
-        print(f"ℹ️ Super admin ya existe: {e}")
+        print(f"❌ Error conectando a base de datos: {e}")
+        raise
     
-    print("✅ Sistema inicializado correctamente")
     yield
-    print("🔴 Cerrando sistema...")
+    
+    # Shutdown
+    print("🔄 Cerrando servidor...")
 
-# Crear app FastAPI
+# Crear aplicación FastAPI
 app = FastAPI(
-    title="Sistema de Gestión de Gastos - Grup Lomi",
-    description="API para gestión de tickets de gastos con RBAC",
+    title="Sistema de Tickets - GrupLomi",
+    description="API para gestión de gastos y tickets empresariales",
     version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
     lifespan=lifespan
 )
 
 # Configurar CORS
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://tickets.gruplomi.com").split(",")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", '["http://localhost:3000"]')
+try:
+    import json
+    cors_origins = json.loads(CORS_ORIGINS.replace("'", '"'))
+except:
+    cors_origins = ["http://localhost:3000"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
 )
 
-# Rate limiting
-app.state.limiter = limiter
-app.add_middleware(SlowAPIMiddleware)
+# Health check
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy", 
+        "message": "Sistema de Tickets - GrupLomi funcionando correctamente",
+        "version": "1.0.0"
+    }
 
-# Servir archivos estáticos (uploads)
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# Incluir routers que existen
+if auth_available:
+    app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
+    
+if tickets_available:
+    app.include_router(tickets_router, prefix="/api/tickets", tags=["Tickets"])
+    
+if usuarios_available:
+    app.include_router(usuarios_router, prefix="/api/usuarios", tags=["Usuarios"])
+    
+if config_available:
+    app.include_router(config_router, prefix="/api/config", tags=["Configuration"])
 
-# Incluir routers
-app.include_router(auth.router, prefix="/auth", tags=["Autenticación"])
-app.include_router(profile.router, tags=["Perfil"])
-app.include_router(roles.router, tags=["Roles"])
-app.include_router(usuarios.router, prefix="/users", tags=["Usuarios"])
-app.include_router(tickets.router, prefix="/tickets", tags=["Tickets"])
-app.include_router(config.router, prefix="/config", tags=["Configuración"])
-
+# Ruta principal
 @app.get("/")
 async def root():
     return {
-        "message": "Sistema de Gestión de Gastos - Grup Lomi",
+        "message": "🎫 Sistema de Tickets - GrupLomi",
         "version": "1.0.0",
+        "docs": "/docs",
         "status": "running",
-        "docs": "/docs"
+        "available_routers": {
+            "auth": auth_available,
+            "tickets": tickets_available,
+            "usuarios": usuarios_available,
+            "config": config_available
+        }
     }
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "database": "connected", "service": "gestion-gastos"}
-
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "4443"))
-    ssl_keyfile = os.getenv("SSL_KEYFILE")
-    ssl_certfile = os.getenv("SSL_CERTFILE")
+    print("=" * 50)
+    print("🏢 SISTEMA DE TICKETS - GRUPLOMI")
+    print("=" * 50)
+    print("🌐 Documentación: http://localhost:8000/docs")
+    print("❤️  Health Check: http://localhost:8000/health")
+    print("🚀 Iniciando servidor...")
     
-    if ssl_keyfile and ssl_certfile:
-        print(f"🔒 Iniciando con SSL en puerto {port}")
-        uvicorn.run(
-            "main:app",
-            host="0.0.0.0",
-            port=port,
-            ssl_key
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )
