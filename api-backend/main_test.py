@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
@@ -14,6 +15,5 @@ def health():
 def test():
     return {"test": "success", "platform": "vercel"}
 
-# Esta es la función que Vercel llamará
-def handler(request):
-    return app
+# Para Vercel, no necesitamos el handler personalizado
+# Vercel automáticamente detecta la variable 'app'
