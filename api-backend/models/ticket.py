@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from .db import Base, SessionLocal
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class Ticket(Base):
     __tablename__ = "tickets"

@@ -69,13 +69,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configurar CORS
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", '["http://localhost:3000"]')
-try:
-    import json
-    cors_origins = json.loads(CORS_ORIGINS.replace("'", '"'))
-except:
-    cors_origins = ["http://localhost:3000"]
+# Configurar CORS para desarrollo y producción
+cors_origins = [
+    "http://localhost:3000",
+    "https://tickets-alpha-pink.vercel.app",
+    "https://*.vercel.app"
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -138,3 +137,5 @@ if __name__ == "__main__":
         reload=True,
         log_level="info"
     )
+
+app = app
