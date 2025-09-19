@@ -1,3 +1,7 @@
 {
-  "version": 2
+  "functions": {
+    "index.py": {
+      "runtime": "python3.9"
+    }
+  }
 }
