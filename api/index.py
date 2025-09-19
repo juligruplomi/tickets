@@ -1,25 +1,55 @@
 from http.server import BaseHTTPRequestHandler
 import json
+import urllib.parse
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Configurar CORS
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        
-        # Routing simple
-        if self.path == '/':
-            response = {"status": "working", "message": "API funcionando en Vercel - Version 4"}
-        elif self.path == '/health':
-            response = {"status": "ok", "service": "tickets-api"}
-        elif self.path == '/api/test':
-            response = {"test": "success", "platform": "vercel", "version": "4"}
-        else:
-            response = {"error": "Not found", "path": self.path}
-        
-        self.wfile.write(json.dumps(response).encode('utf-8'))
+        try:
+            # Configurar headers
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # Parse URL path
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path
+            
+            # Routing simple
+            if path == '/' or path == '/api':
+                response = {
+                    "status": "working", 
+                    "message": "API funcionando en Vercel - Version 5",
+                    "endpoints": ["/", "/health", "/api/test"]
+                }
+            elif path == '/health':
+                response = {"status": "ok", "service": "tickets-api", "version": "5"}
+            elif path == '/api/test' or path == '/test':
+                response = {"test": "success", "platform": "vercel", "version": "5"}
+            else:
+                self.send_response(404)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                response = {"error": "Not found", "path": path, "available": ["/", "/health", "/api/test"]}
+            
+            # Send response
+            self.wfile.write(json.dumps(response, indent=2).encode('utf-8'))
+            
+        except Exception as e:
+            # Error handling
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            error_response = {"error": "Internal server error", "details": str(e)}
+            self.wfile.write(json.dumps(error_response).encode('utf-8'))
         
     def do_POST(self):
         self.do_GET()  # Handle POST same as GET for now
+        
+    def do_OPTIONS(self):
+        # Handle CORS preflight
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
