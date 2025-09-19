@@ -4,7 +4,7 @@ app = FastAPI()
 
 @app.get("/")
 def root():
-    return {"status": "working", "message": "FastAPI funcionando en Vercel - Version 2"}
+    return {"status": "working", "message": "FastAPI funcionando en Vercel - Version 3 - Fixed"}
 
 @app.get("/health")
 def health():
@@ -12,7 +12,7 @@ def health():
 
 @app.get("/api/test")
 def test():
-    return {"test": "success", "platform": "vercel"}
+    return {"test": "success", "platform": "vercel", "version": "3"}
 
 # Handler para Vercel
 def handler(event, context):
