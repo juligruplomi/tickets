@@ -12,41 +12,77 @@ USERS_DB = {
         "id": 1,
         "email": "admin@gruplomi.com",
         "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
-        "nombre": "Administrador Sistema",
+        "nombre": "Carlos",
+        "apellidos": "Administrador López",
+        "codigo_empleado": "ADM001",
+        "telefono": "+34 666 123 456",
+        "direccion": "Calle Principal 123, Barcelona",
+        "fecha_nacimiento": "1980-05-15",
+        "fecha_contratacion": "2020-01-01",
+        "foto_url": "/avatars/admin.jpg",
         "role": "administrador",
         "departamento": "IT",
+        "supervisor_id": None,
         "activo": True,
-        "idioma_preferido": "es"
+        "idioma_preferido": "es",
+        "permisos_especiales": ["gestion_usuarios", "configuracion_sistema", "reportes_avanzados"]
     },
     "supervisor@gruplomi.com": {
         "id": 2,
         "email": "supervisor@gruplomi.com", 
         "password_hash": hashlib.sha256("super123".encode()).hexdigest(),
-        "nombre": "Juan Supervisor",
+        "nombre": "Juan",
+        "apellidos": "Supervisor García",
+        "codigo_empleado": "SUP001",
+        "telefono": "+34 666 234 567",
+        "direccion": "Avenida Central 456, Madrid",
+        "fecha_nacimiento": "1975-08-22",
+        "fecha_contratacion": "2020-03-15",
+        "foto_url": "/avatars/supervisor.jpg",
         "role": "supervisor",
         "departamento": "Operaciones",
+        "supervisor_id": 1,
         "activo": True,
-        "idioma_preferido": "es"
+        "idioma_preferido": "es",
+        "permisos_especiales": ["aprobacion_gastos"]
     },
     "operario@gruplomi.com": {
         "id": 3,
         "email": "operario@gruplomi.com", 
         "password_hash": hashlib.sha256("opera123".encode()).hexdigest(),
-        "nombre": "Carlos Operario",
+        "nombre": "Carlos",
+        "apellidos": "Operario Martínez",
+        "codigo_empleado": "OPE001",
+        "telefono": "+34 666 345 678",
+        "direccion": "Calle Trabajo 789, Valencia",
+        "fecha_nacimiento": "1990-12-10",
+        "fecha_contratacion": "2021-06-01",
+        "foto_url": "/avatars/operario.jpg",
         "role": "operario",
         "departamento": "Campo",
+        "supervisor_id": 2,
         "activo": True,
-        "idioma_preferido": "es"
+        "idioma_preferido": "es",
+        "permisos_especiales": []
     },
     "contabilidad@gruplomi.com": {
         "id": 4,
         "email": "contabilidad@gruplomi.com", 
         "password_hash": hashlib.sha256("conta123".encode()).hexdigest(),
-        "nombre": "Maria Contable",
+        "nombre": "María",
+        "apellidos": "Contable Fernández",
+        "codigo_empleado": "CON001",
+        "telefono": "+34 666 456 789",
+        "direccion": "Plaza Finanzas 12, Sevilla",
+        "fecha_nacimiento": "1985-03-18",
+        "fecha_contratacion": "2020-09-01",
+        "foto_url": "/avatars/contabilidad.jpg",
         "role": "contabilidad",
         "departamento": "Finanzas",
+        "supervisor_id": 1,
         "activo": True,
-        "idioma_preferido": "es"
+        "idioma_preferido": "es",
+        "permisos_especiales": ["gestion_pagos", "reportes_financieros"]
     }
 }
 
@@ -392,6 +428,59 @@ class GastosAPI(BaseHTTPRequestHandler):
                     
                 self._send_json_response(pendientes)
                 
+            elif path == '/usuarios':
+                user = self._verify_token()
+                if not user or user['role'] != 'administrador':
+                    self._send_json_response({"error": "Sin permisos para ver usuarios"}, 403)
+                    return
+                
+                # Devolver todos los usuarios sin el hash de contraseña
+                usuarios_list = []
+                for usuario in USERS_DB.values():
+                    user_safe = {k: v for k, v in usuario.items() if k != 'password_hash'}
+                    usuarios_list.append(user_safe)
+                
+                # Añadir información del supervisor
+                for usuario in usuarios_list:
+                    if usuario.get('supervisor_id'):
+                        supervisor = next((u for u in USERS_DB.values() if u['id'] == usuario['supervisor_id']), None)
+                        if supervisor:
+                            usuario['supervisor_nombre'] = f"{supervisor['nombre']} {supervisor['apellidos']}"
+                    else:
+                        usuario['supervisor_nombre'] = None
+                
+                self._send_json_response(usuarios_list)
+                
+            elif path.startswith('/usuarios/'):
+                user = self._verify_token()
+                if not user:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                user_id = int(path.split('/')[-1])
+                target_user = next((u for u in USERS_DB.values() if u['id'] == user_id), None)
+                
+                if not target_user:
+                    self._send_json_response({"error": "Usuario no encontrado"}, 404)
+                    return
+                
+                # Solo admin puede ver cualquier usuario, otros solo su propio perfil
+                if user['role'] != 'administrador' and user['user_id'] != user_id:
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                user_safe = {k: v for k, v in target_user.items() if k != 'password_hash'}
+                
+                # Añadir información del supervisor
+                if user_safe.get('supervisor_id'):
+                    supervisor = next((u for u in USERS_DB.values() if u['id'] == user_safe['supervisor_id']), None)
+                    if supervisor:
+                        user_safe['supervisor_nombre'] = f"{supervisor['nombre']} {supervisor['apellidos']}"
+                else:
+                    user_safe['supervisor_nombre'] = None
+                
+                self._send_json_response(user_safe)
+                
             elif path == '/reportes/dashboard':
                 user = self._verify_token()
                 if not user:
@@ -424,6 +513,51 @@ class GastosAPI(BaseHTTPRequestHandler):
                     }
                 }
                 self._send_json_response(dashboard_data)
+                
+            elif path == '/usuarios':
+                user = self._verify_token()
+                if not user or user['role'] != 'administrador':
+                    self._send_json_response({"error": "Sin permisos para crear usuarios"}, 403)
+                    return
+                
+                # Validar email único
+                email = data.get('email')
+                if email in USERS_DB:
+                    self._send_json_response({"error": "El email ya existe"}, 400)
+                    return
+                
+                # Generar nuevo ID
+                new_id = max(u['id'] for u in USERS_DB.values()) + 1
+                
+                # Hashear contraseña
+                password = data.get('password', 'temp123')
+                password_hash = hashlib.sha256(password.encode()).hexdigest()
+                
+                nuevo_usuario = {
+                    "id": new_id,
+                    "email": email,
+                    "password_hash": password_hash,
+                    "nombre": data.get('nombre', ''),
+                    "apellidos": data.get('apellidos', ''),
+                    "codigo_empleado": data.get('codigo_empleado', ''),
+                    "telefono": data.get('telefono', ''),
+                    "direccion": data.get('direccion', ''),
+                    "fecha_nacimiento": data.get('fecha_nacimiento', ''),
+                    "fecha_contratacion": data.get('fecha_contratacion', ''),
+                    "foto_url": data.get('foto_url', '/avatars/default.jpg'),
+                    "role": data.get('role', 'operario'),
+                    "departamento": data.get('departamento', ''),
+                    "supervisor_id": data.get('supervisor_id'),
+                    "activo": data.get('activo', True),
+                    "idioma_preferido": data.get('idioma_preferido', 'es'),
+                    "permisos_especiales": data.get('permisos_especiales', [])
+                }
+                
+                USERS_DB[email] = nuevo_usuario
+                
+                # Devolver usuario sin contraseña
+                user_safe = {k: v for k, v in nuevo_usuario.items() if k != 'password_hash'}
+                self._send_json_response(user_safe, 201)
                 
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
@@ -550,6 +684,63 @@ class GastosAPI(BaseHTTPRequestHandler):
                 GASTOS_DB[new_id] = nuevo_gasto
                 self._send_json_response(nuevo_gasto, 201)
                 
+            elif path.startswith('/usuarios/'):
+                # Actualizar usuario
+                user_id = int(path.split('/')[-1])
+                target_user_entry = next(((email, u) for email, u in USERS_DB.items() if u['id'] == user_id), None)
+                
+                if not target_user_entry:
+                    self._send_json_response({"error": "Usuario no encontrado"}, 404)
+                    return
+                
+                email, target_user = target_user_entry
+                
+                # Solo admin puede editar cualquier usuario, otros solo su perfil
+                if user['role'] != 'administrador' and user['user_id'] != user_id:
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                # Actualizar campos (admin puede cambiar todo, usuario solo datos personales)
+                if user['role'] == 'administrador':
+                    # Admin puede cambiar cualquier campo
+                    updateable_fields = [
+                        'nombre', 'apellidos', 'codigo_empleado', 'telefono', 'direccion',
+                        'fecha_nacimiento', 'fecha_contratacion', 'foto_url', 'role',
+                        'departamento', 'supervisor_id', 'activo', 'idioma_preferido',
+                        'permisos_especiales'
+                    ]
+                else:
+                    # Usuario normal solo puede cambiar datos personales
+                    updateable_fields = [
+                        'nombre', 'apellidos', 'telefono', 'direccion', 'foto_url',
+                        'idioma_preferido'
+                    ]
+                
+                for field in updateable_fields:
+                    if field in data:
+                        target_user[field] = data[field]
+                
+                # Cambiar contraseña si se proporciona
+                if 'password' in data and data['password']:
+                    target_user['password_hash'] = hashlib.sha256(data['password'].encode()).hexdigest()
+                
+                # Cambiar email (solo admin)
+                if 'email' in data and user['role'] == 'administrador':
+                    new_email = data['email']
+                    if new_email != email and new_email in USERS_DB:
+                        self._send_json_response({"error": "El email ya existe"}, 400)
+                        return
+                    
+                    if new_email != email:
+                        # Cambiar clave en el diccionario
+                        USERS_DB[new_email] = target_user
+                        target_user['email'] = new_email
+                        del USERS_DB[email]
+                
+                # Devolver usuario actualizado sin contraseña
+                user_safe = {k: v for k, v in target_user.items() if k != 'password_hash'}
+                self._send_json_response(user_safe)
+                
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
@@ -633,6 +824,35 @@ class GastosAPI(BaseHTTPRequestHandler):
                     gasto['importe'] = round(float(data['kilometros']) * float(data['precio_km']), 2)
                         
                 self._send_json_response(gasto)
+                
+            elif path.startswith('/usuarios/'):
+                user_id = int(path.split('/')[-1])
+                target_user_entry = next(((email, u) for email, u in USERS_DB.items() if u['id'] == user_id), None)
+                
+                if not target_user_entry:
+                    self._send_json_response({"error": "Usuario no encontrado"}, 404)
+                    return
+                
+                email, target_user = target_user_entry
+                
+                # Solo admin puede eliminar usuarios
+                if user['role'] != 'administrador':
+                    self._send_json_response({"error": "Sin permisos para eliminar usuarios"}, 403)
+                    return
+                
+                # No se puede eliminar a sí mismo
+                if user['user_id'] == user_id:
+                    self._send_json_response({"error": "No puedes eliminarte a ti mismo"}, 400)
+                    return
+                
+                # Verificar que no tenga gastos pendientes
+                gastos_pendientes = [g for g in GASTOS_DB.values() if g['creado_por'] == user_id and g['estado'] == 'pendiente']
+                if gastos_pendientes:
+                    self._send_json_response({"error": f"El usuario tiene {len(gastos_pendientes)} gastos pendientes"}, 400)
+                    return
+                
+                del USERS_DB[email]
+                self._send_json_response({"message": "Usuario eliminado correctamente"})
                 
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
