@@ -40,7 +40,7 @@ TICKETS_DB = {
     }
 }
 
-# Configuración del sistema
+# Configuración del sistema con soporte multiidioma
 SYSTEM_CONFIG = {
     "empresa": {
         "nombre": "GrupLomi",
@@ -51,9 +51,44 @@ SYSTEM_CONFIG = {
             "acento": "#28a745"
         }
     },
-    "mensajes": {
-        "bienvenida": "Bienvenido al sistema de tickets de GrupLomi",
-        "footer": "© 2025 GrupLomi - Sistema de gestión de tickets"
+    "idioma": {
+        "predeterminado": "es",
+        "idiomas_disponibles": ["es", "en", "ca"],
+        "traducciones": {
+            "es": {
+                "bienvenida": "Bienvenido al sistema de tickets de GrupLomi",
+                "footer": "© 2025 GrupLomi - Sistema de gestión de tickets",
+                "dashboard": "Panel de Control",
+                "tickets": "Tickets",
+                "usuarios": "Usuarios",
+                "configuracion": "Configuración",
+                "cerrar_sesion": "Cerrar Sesión",
+                "estado_sistema": "Estado del sistema",
+                "funcionalidades": "Funcionalidades disponibles"
+            },
+            "en": {
+                "bienvenida": "Welcome to GrupLomi ticket system",
+                "footer": "© 2025 GrupLomi - Ticket management system",
+                "dashboard": "Dashboard",
+                "tickets": "Tickets",
+                "usuarios": "Users",
+                "configuracion": "Settings",
+                "cerrar_sesion": "Logout",
+                "estado_sistema": "System status",
+                "funcionalidades": "Available features"
+            },
+            "ca": {
+                "bienvenida": "Benvingut al sistema de tickets de GrupLomi",
+                "footer": "© 2025 GrupLomi - Sistema de gestió de tickets",
+                "dashboard": "Tauler de Control",
+                "tickets": "Tickets",
+                "usuarios": "Usuaris",
+                "configuracion": "Configuració",
+                "cerrar_sesion": "Tancar Sessió",
+                "estado_sistema": "Estat del sistema",
+                "funcionalidades": "Funcionalitats disponibles"
+            }
+        }
     },
     "apariencia": {
         "modo_oscuro": False,
@@ -71,11 +106,10 @@ SYSTEM_CONFIG = {
     }
 }
 
-# Simulador simple de JWT (sin librería)
+# Simulador simple de JWT
 JWT_SECRET = "mi-clave-secreta-jwt-2025"
 
 def create_simple_token(user_data: Dict) -> str:
-    """Crear token simple (simulado)"""
     import base64
     payload = {
         'user_id': user_data['id'],
@@ -87,7 +121,6 @@ def create_simple_token(user_data: Dict) -> str:
     return base64.b64encode(token_data.encode()).decode()
 
 def verify_simple_token(token: str) -> Optional[Dict]:
-    """Verificar token simple"""
     try:
         import base64
         token_data = base64.b64decode(token.encode()).decode()
@@ -99,13 +132,11 @@ def verify_simple_token(token: str) -> Optional[Dict]:
 class TicketsAPI(BaseHTTPRequestHandler):
     
     def _set_cors_headers(self):
-        """Configurar headers CORS"""
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         
     def _send_json_response(self, data: Any, status_code: int = 200):
-        """Enviar respuesta JSON"""
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
         self._set_cors_headers()
@@ -113,7 +144,6 @@ class TicketsAPI(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data, indent=2).encode('utf-8'))
         
     def _get_request_data(self) -> Dict:
-        """Obtener datos del request"""
         try:
             content_length = int(self.headers.get('content-length', 0))
             if content_length > 0:
@@ -125,50 +155,53 @@ class TicketsAPI(BaseHTTPRequestHandler):
             return {}
             
     def _verify_token(self) -> Optional[Dict]:
-        """Verificar token"""
         try:
             auth_header = self.headers.get('Authorization', '')
             if not auth_header.startswith('Bearer '):
                 return None
-            
             token = auth_header.split(' ')[1]
             return verify_simple_token(token)
         except:
             return None
 
     def do_OPTIONS(self):
-        """Manejar CORS preflight"""
         self.send_response(200)
         self._set_cors_headers()
         self.end_headers()
 
     def do_GET(self):
-        """Manejar GET requests"""
         try:
             parsed_path = urllib.parse.urlparse(self.path)
             path = parsed_path.path
+            query_params = urllib.parse.parse_qs(parsed_path.query)
             
             if path == '/' or path == '/api':
                 response = {
                     "status": "working",
-                    "message": "API completa con configuración - Version 10",
+                    "message": "API completa con configuración e idiomas - Version 11",
                     "endpoints": {
                         "auth": ["/auth/login", "/auth/me"],
                         "tickets": ["/tickets", "/tickets/{id}"],
                         "usuarios": ["/usuarios", "/usuarios/{id}"],
-                        "config": ["/config"]
+                        "config": ["/config", "/config/admin"]
                     }
                 }
                 self._send_json_response(response)
                 
             elif path == '/health':
-                self._send_json_response({"status": "ok", "version": "10"})
+                self._send_json_response({"status": "ok", "version": "11"})
                 
             elif path == '/config':
-                # Configuración pública (sin autenticación necesaria)
+                # Configuración pública
+                idioma = query_params.get('lang', ['es'])[0]
+                
                 public_config = {
                     "empresa": SYSTEM_CONFIG["empresa"],
-                    "mensajes": SYSTEM_CONFIG["mensajes"],
+                    "idioma": {
+                        "actual": idioma,
+                        "disponibles": SYSTEM_CONFIG["idioma"]["idiomas_disponibles"],
+                        "traducciones": SYSTEM_CONFIG["idioma"]["traducciones"].get(idioma, SYSTEM_CONFIG["idioma"]["traducciones"]["es"])
+                    },
                     "apariencia": SYSTEM_CONFIG["apariencia"],
                     "tickets": {
                         "estados": SYSTEM_CONFIG["tickets"]["estados"],
@@ -177,6 +210,15 @@ class TicketsAPI(BaseHTTPRequestHandler):
                     }
                 }
                 self._send_json_response(public_config)
+                
+            elif path == '/config/admin':
+                # Configuración completa solo para admin
+                user = self._verify_token()
+                if not user or user['role'] != 'admin':
+                    self._send_json_response({"error": "Acceso denegado - Solo administradores"}, 403)
+                    return
+                    
+                self._send_json_response(SYSTEM_CONFIG)
                 
             elif path == '/auth/me':
                 user = self._verify_token()
@@ -198,29 +240,11 @@ class TicketsAPI(BaseHTTPRequestHandler):
                     return
                     
                 tickets_list = list(TICKETS_DB.values())
-                # Filtrar tickets según rol
                 if user['role'] != 'admin':
                     tickets_list = [t for t in tickets_list if t['creado_por'] == user['user_id'] or t.get('asignado_a') == user['user_id']]
                     
                 self._send_json_response(tickets_list)
                 
-            elif path.startswith('/tickets/'):
-                user = self._verify_token()
-                if not user:
-                    self._send_json_response({"error": "Token requerido"}, 401)
-                    return
-                    
-                ticket_id = int(path.split('/')[-1])
-                if ticket_id in TICKETS_DB:
-                    ticket = TICKETS_DB[ticket_id]
-                    # Verificar permisos
-                    if user['role'] == 'admin' or ticket['creado_por'] == user['user_id'] or ticket.get('asignado_a') == user['user_id']:
-                        self._send_json_response(ticket)
-                    else:
-                        self._send_json_response({"error": "Sin permisos"}, 403)
-                else:
-                    self._send_json_response({"error": "Ticket no encontrado"}, 404)
-                    
             elif path == '/usuarios':
                 user = self._verify_token()
                 if not user or user['role'] != 'admin':
@@ -238,7 +262,6 @@ class TicketsAPI(BaseHTTPRequestHandler):
             self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
     def do_POST(self):
-        """Manejar POST requests"""
         try:
             parsed_path = urllib.parse.urlparse(self.path)
             path = parsed_path.path
@@ -249,9 +272,7 @@ class TicketsAPI(BaseHTTPRequestHandler):
                 password = data.get('password')
                 
                 if not email or not password:
-                    self._send_json_response({
-                        "error": "Email y contraseña requeridos"
-                    }, 400)
+                    self._send_json_response({"error": "Email y contraseña requeridos"}, 400)
                     return
                     
                 user = USERS_DB.get(email)
@@ -282,7 +303,6 @@ class TicketsAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                     
-                # Crear nuevo ticket
                 new_id = max(TICKETS_DB.keys()) + 1 if TICKETS_DB else 1
                 new_ticket = {
                     "id": new_id,
@@ -305,7 +325,6 @@ class TicketsAPI(BaseHTTPRequestHandler):
             self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
     def do_PUT(self):
-        """Manejar PUT requests"""
         try:
             parsed_path = urllib.parse.urlparse(self.path)
             path = parsed_path.path
@@ -316,8 +335,7 @@ class TicketsAPI(BaseHTTPRequestHandler):
                 self._send_json_response({"error": "Token requerido"}, 401)
                 return
                 
-            if path == '/config':
-                # Solo admin puede cambiar configuración
+            if path == '/config' or path == '/config/admin':
                 if user['role'] != 'admin':
                     self._send_json_response({"error": "Solo administradores pueden cambiar la configuración"}, 403)
                     return
@@ -340,12 +358,10 @@ class TicketsAPI(BaseHTTPRequestHandler):
                     
                 ticket = TICKETS_DB[ticket_id]
                 
-                # Verificar permisos
                 if user['role'] != 'admin' and ticket['creado_por'] != user['user_id']:
                     self._send_json_response({"error": "Sin permisos para editar este ticket"}, 403)
                     return
                     
-                # Actualizar ticket
                 for key, value in data.items():
                     if key in ['titulo', 'descripcion', 'estado', 'prioridad', 'asignado_a', 'categoria']:
                         ticket[key] = value
@@ -359,7 +375,6 @@ class TicketsAPI(BaseHTTPRequestHandler):
             self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
     def do_DELETE(self):
-        """Manejar DELETE requests"""
         try:
             parsed_path = urllib.parse.urlparse(self.path)
             path = parsed_path.path
@@ -375,7 +390,6 @@ class TicketsAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Ticket no encontrado"}, 404)
                     return
                 
-                # Solo admin puede eliminar tickets
                 if user['role'] != 'admin':
                     self._send_json_response({"error": "Solo administradores pueden eliminar tickets"}, 403)
                     return
@@ -389,5 +403,4 @@ class TicketsAPI(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
-# Handler principal para Vercel
 handler = TicketsAPI
