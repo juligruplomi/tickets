@@ -55,34 +55,38 @@ GASTOS_DB = {
     1: {
         "id": 1,
         "tipo_gasto": "dieta",
-        "concepto": "Almuerzo en obra Madrid",
-        "descripcion": "Almuerzo para equipo durante trabajo en obra",
+        "descripcion": "Almuerzo para equipo durante trabajo en obra Madrid",
+        "obra": "Construcción Edificio Plaza",
         "importe": 45.50,
         "fecha_gasto": "2025-01-20",
         "estado": "pendiente",
         "creado_por": 3,
         "supervisor_asignado": 2,
         "fecha_creacion": "2025-01-20T10:00:00Z",
-        "archivos_adjuntos": [],
-        "observaciones": "",
+        "archivos_adjuntos": ["ticket_almuerzo_123.jpg"],
         "fecha_aprobacion": None,
-        "aprobado_por": None
+        "aprobado_por": None,
+        # Campos específicos para combustible
+        "kilometros": None,
+        "precio_km": None
     },
     2: {
         "id": 2,
         "tipo_gasto": "gasolina",
-        "concepto": "Combustible furgoneta",
-        "descripcion": "Gasolina para desplazamiento a obra Barcelona",
+        "descripcion": "Desplazamiento a obra Barcelona",
+        "obra": "Reparación Nave Industrial",
         "importe": 78.30,
         "fecha_gasto": "2025-01-19",
         "estado": "aprobado",
         "creado_por": 3,
         "supervisor_asignado": 2,
         "fecha_creacion": "2025-01-19T15:30:00Z",
-        "archivos_adjuntos": ["ticket_gasolina_123.jpg"],
-        "observaciones": "Aprobado - Gasto justificado",
+        "archivos_adjuntos": [],
         "fecha_aprobacion": "2025-01-20T09:00:00Z",
-        "aprobado_por": 2
+        "aprobado_por": 2,
+        # Campos específicos para combustible
+        "kilometros": 156,
+        "precio_km": 0.502
     }
 }
 
@@ -475,22 +479,65 @@ class GastosAPI(BaseHTTPRequestHandler):
                     return
                     
                 new_id = max(GASTOS_DB.keys()) + 1 if GASTOS_DB else 1
-                nuevo_gasto = {
-                    "id": new_id,
-                    "tipo_gasto": data.get('tipo_gasto'),
-                    "concepto": data.get('concepto'),
-                    "descripcion": data.get('descripcion'),
-                    "importe": float(data.get('importe', 0)),
-                    "fecha_gasto": data.get('fecha_gasto'),
-                    "estado": "pendiente",
-                    "creado_por": user['user_id'],
-                    "supervisor_asignado": data.get('supervisor_asignado'),
-                    "fecha_creacion": datetime.datetime.utcnow().isoformat() + 'Z',
-                    "archivos_adjuntos": data.get('archivos_adjuntos', []),
-                    "observaciones": data.get('observaciones', ''),
-                    "fecha_aprobacion": None,
-                    "aprobado_por": None
-                }
+                
+                # Procesar campos según el tipo de gasto
+                tipo_gasto = data.get('tipo_gasto')
+                descripcion = data.get('descripcion')
+                obra = data.get('obra')
+                archivos_adjuntos = data.get('archivos_adjuntos', [])
+                
+                # Validar archivos obligatorios para dieta y aparcamiento
+                if tipo_gasto in ['dieta', 'aparcamiento']:
+                    if not archivos_adjuntos or len(archivos_adjuntos) == 0:
+                        self._send_json_response({
+                            "error": f"Es obligatorio adjuntar una foto del ticket para {tipo_gasto}"
+                        }, 400)
+                        return
+                
+                # Calcular importe según el tipo de gasto
+                if tipo_gasto == 'gasolina':
+                    kilometros = float(data.get('kilometros', 0))
+                    precio_km = float(data.get('precio_km', 0))
+                    importe_calculado = kilometros * precio_km
+                    
+                    nuevo_gasto = {
+                        "id": new_id,
+                        "tipo_gasto": tipo_gasto,
+                        "descripcion": descripcion,
+                        "obra": obra,
+                        "importe": round(importe_calculado, 2),
+                        "fecha_gasto": data.get('fecha_gasto'),
+                        "estado": "pendiente",
+                        "creado_por": user['user_id'],
+                        "supervisor_asignado": data.get('supervisor_asignado'),
+                        "fecha_creacion": datetime.datetime.utcnow().isoformat() + 'Z',
+                        "archivos_adjuntos": archivos_adjuntos,
+                        "fecha_aprobacion": None,
+                        "aprobado_por": None,
+                        "kilometros": kilometros,
+                        "precio_km": precio_km
+                    }
+                else:
+                    # Para otros tipos de gasto (dieta, aparcamiento, otros)
+                    importe = float(data.get('importe', 0))
+                    
+                    nuevo_gasto = {
+                        "id": new_id,
+                        "tipo_gasto": tipo_gasto,
+                        "descripcion": descripcion,
+                        "obra": obra,
+                        "importe": importe,
+                        "fecha_gasto": data.get('fecha_gasto'),
+                        "estado": "pendiente",
+                        "creado_por": user['user_id'],
+                        "supervisor_asignado": data.get('supervisor_asignado'),
+                        "fecha_creacion": datetime.datetime.utcnow().isoformat() + 'Z',
+                        "archivos_adjuntos": archivos_adjuntos,
+                        "fecha_aprobacion": None,
+                        "aprobado_por": None,
+                        "kilometros": None,
+                        "precio_km": None
+                    }
                 
                 # Validar límites
                 tipo_config = next((t for t in SYSTEM_CONFIG['gastos']['tipos_gasto'] if t['id'] == nuevo_gasto['tipo_gasto']), None)
@@ -578,8 +625,12 @@ class GastosAPI(BaseHTTPRequestHandler):
                     
                 # Actualizar campos
                 for key, value in data.items():
-                    if key in ['concepto', 'descripcion', 'importe', 'fecha_gasto', 'tipo_gasto']:
+                    if key in ['descripcion', 'obra', 'importe', 'fecha_gasto', 'tipo_gasto', 'archivos_adjuntos', 'kilometros', 'precio_km']:
                         gasto[key] = value
+                
+                # Recalcular importe si es combustible y se proporcionan km/precio
+                if gasto['tipo_gasto'] == 'gasolina' and 'kilometros' in data and 'precio_km' in data:
+                    gasto['importe'] = round(float(data['kilometros']) * float(data['precio_km']), 2)
                         
                 self._send_json_response(gasto)
                 
