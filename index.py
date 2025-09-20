@@ -6,276 +6,224 @@ import datetime
 import os
 from typing import Dict, Any, Optional
 
-# Datos simulados para pruebas
+# Datos simulados para el sistema de gastos
 USERS_DB = {
     "admin@gruplomi.com": {
         "id": 1,
         "email": "admin@gruplomi.com",
         "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
-        "nombre": "Administrador",
-        "role": "admin",
+        "nombre": "Administrador Sistema",
+        "role": "administrador",
+        "departamento": "IT",
         "activo": True,
         "idioma_preferido": "es"
     },
-    "user@gruplomi.com": {
+    "supervisor@gruplomi.com": {
         "id": 2,
-        "email": "user@gruplomi.com", 
-        "password_hash": hashlib.sha256("user123".encode()).hexdigest(),
-        "nombre": "Usuario Test",
-        "role": "usuario",
+        "email": "supervisor@gruplomi.com", 
+        "password_hash": hashlib.sha256("super123".encode()).hexdigest(),
+        "nombre": "Juan Supervisor",
+        "role": "supervisor",
+        "departamento": "Operaciones",
+        "activo": True,
+        "idioma_preferido": "es"
+    },
+    "operario@gruplomi.com": {
+        "id": 3,
+        "email": "operario@gruplomi.com", 
+        "password_hash": hashlib.sha256("opera123".encode()).hexdigest(),
+        "nombre": "Carlos Operario",
+        "role": "operario",
+        "departamento": "Campo",
+        "activo": True,
+        "idioma_preferido": "es"
+    },
+    "contabilidad@gruplomi.com": {
+        "id": 4,
+        "email": "contabilidad@gruplomi.com", 
+        "password_hash": hashlib.sha256("conta123".encode()).hexdigest(),
+        "nombre": "Maria Contable",
+        "role": "contabilidad",
+        "departamento": "Finanzas",
         "activo": True,
         "idioma_preferido": "es"
     }
 }
 
-TICKETS_DB = {
+# Base de datos de gastos/tickets
+GASTOS_DB = {
     1: {
         "id": 1,
-        "titulo": "Problema con impresora",
-        "descripcion": "La impresora no funciona correctamente",
-        "estado": "abierto",
-        "prioridad": "media",
-        "asignado_a": 1,
-        "creado_por": 2,
-        "fecha_creacion": "2025-01-15T10:00:00Z",
-        "categoria": "hardware"
+        "tipo_gasto": "dieta",
+        "concepto": "Almuerzo en obra Madrid",
+        "descripcion": "Almuerzo para equipo durante trabajo en obra",
+        "importe": 45.50,
+        "fecha_gasto": "2025-01-20",
+        "estado": "pendiente",
+        "creado_por": 3,
+        "supervisor_asignado": 2,
+        "fecha_creacion": "2025-01-20T10:00:00Z",
+        "archivos_adjuntos": [],
+        "observaciones": "",
+        "fecha_aprobacion": None,
+        "aprobado_por": None
+    },
+    2: {
+        "id": 2,
+        "tipo_gasto": "gasolina",
+        "concepto": "Combustible furgoneta",
+        "descripcion": "Gasolina para desplazamiento a obra Barcelona",
+        "importe": 78.30,
+        "fecha_gasto": "2025-01-19",
+        "estado": "aprobado",
+        "creado_por": 3,
+        "supervisor_asignado": 2,
+        "fecha_creacion": "2025-01-19T15:30:00Z",
+        "archivos_adjuntos": ["ticket_gasolina_123.jpg"],
+        "observaciones": "Aprobado - Gasto justificado",
+        "fecha_aprobacion": "2025-01-20T09:00:00Z",
+        "aprobado_por": 2
     }
 }
 
-# Configuración del sistema con traducciones completas
+# Configuración del sistema de gastos
 SYSTEM_CONFIG = {
     "empresa": {
         "nombre": "GrupLomi",
         "logo_url": "/logo.png",
-        "logo_file": None,
+        "cif": "B12345678",
+        "direccion": "Calle Empresa 123, Barcelona",
         "colores": {
             "primario": "#0066CC",
             "secundario": "#f8f9fa",
             "acento": "#28a745"
         }
     },
+    "gastos": {
+        "tipos_gasto": [
+            {
+                "id": "dieta",
+                "nombre": "Dietas",
+                "descripcion": "Gastos de comida durante jornada laboral",
+                "limite_diario": 50.00,
+                "requiere_justificante": True,
+                "icon": "🍽️"
+            },
+            {
+                "id": "aparcamiento", 
+                "nombre": "Aparcamiento",
+                "descripcion": "Gastos de parking y estacionamiento",
+                "limite_diario": 20.00,
+                "requiere_justificante": True,
+                "icon": "🅿️"
+            },
+            {
+                "id": "gasolina",
+                "nombre": "Combustible",
+                "descripcion": "Gastos de gasolina y combustible",
+                "limite_diario": 100.00,
+                "requiere_justificante": True,
+                "icon": "⛽"
+            },
+            {
+                "id": "otros",
+                "nombre": "Otros gastos",
+                "descripcion": "Otros gastos operativos",
+                "limite_diario": 75.00,
+                "requiere_justificante": True,
+                "icon": "📎"
+            }
+        ],
+        "estados": [
+            {"id": "pendiente", "nombre": "Pendiente", "color": "#ffc107"},
+            {"id": "aprobado", "nombre": "Aprobado", "color": "#28a745"},
+            {"id": "rechazado", "nombre": "Rechazado", "color": "#dc3545"},
+            {"id": "pagado", "nombre": "Pagado", "color": "#0066CC"}
+        ],
+        "limites_aprobacion": {
+            "operario": 0,  # No puede aprobar
+            "supervisor": 500.00,  # Hasta 500€
+            "administrador": 9999999,  # Sin límite
+            "contabilidad": 9999999  # Sin límite
+        }
+    },
     "idioma": {
         "predeterminado": "es",
-        "idiomas_disponibles": ["es", "en", "ca", "de", "it", "pt"],
+        "idiomas_disponibles": ["es", "en", "ca"],
         "traducciones": {
             "es": {
-                "bienvenida": "Bienvenido al sistema de tickets de GrupLomi",
-                "footer": "© 2025 GrupLomi - Sistema de gestión de tickets",
+                "gastos": "Gastos",
+                "nuevo_gasto": "Nuevo Gasto",
+                "mis_gastos": "Mis Gastos",
                 "dashboard": "Panel de Control",
-                "tickets": "Tickets",
-                "usuarios": "Usuarios",
+                "usuarios": "Usuarios", 
                 "configuracion": "Configuración",
-                "cerrar_sesion": "Cerrar Sesión",
-                "estado_sistema": "Estado del sistema",
-                "funcionalidades": "Funcionalidades disponibles",
-                "idioma": "Idioma",
-                "hola": "Hola",
-                "tienes_rol": "tienes rol de",
-                "administrador": "Administrador",
-                "usuario": "Usuario",
-                "api_funcionando": "API funcionando",
-                "autenticacion_activa": "Autenticación activa",
-                "configuracion_cargada": "Configuración cargada",
-                "tema": "Tema",
-                "oscuro": "Oscuro",
-                "claro": "Claro",
-                "gestion_de": "Gestión de",
-                "administracion_de": "Administración de",
-                "estados_disponibles": "estados disponibles",
-                "gestion_completa_usuarios": "Gestión completa de usuarios",
-                "del_sistema": "del sistema",
-                "personalizacion_avanzada": "Personalización avanzada",
-                "reportes_estadisticas": "Reportes y estadísticas",
-                "analisis_metricas": "Análisis y métricas",
-                "panel_administrador": "Panel de Administrador",
-                "como_administrador": "Como administrador, puedes personalizar mensajes, colores, categorías de tickets y más desde la sección de",
-                "controles_navbar": "Los controles de idioma y tema están disponibles en la barra de navegación superior"
+                "reportes": "Reportes",
+                "pendientes_aprobacion": "Pendientes de Aprobación",
+                "total_mensual": "Total Mensual",
+                "por_aprobar": "Por Aprobar",
+                "aprobados_mes": "Aprobados este mes",
+                "dietas": "Dietas",
+                "aparcamiento": "Aparcamiento", 
+                "gasolina": "Combustible",
+                "otros": "Otros gastos",
+                "pendiente": "Pendiente",
+                "aprobado": "Aprobado",
+                "rechazado": "Rechazado",
+                "pagado": "Pagado"
             },
             "en": {
-                "bienvenida": "Welcome to GrupLomi ticket system",
-                "footer": "© 2025 GrupLomi - Ticket management system",
+                "gastos": "Expenses",
+                "nuevo_gasto": "New Expense",
+                "mis_gastos": "My Expenses",
                 "dashboard": "Dashboard",
-                "tickets": "Tickets",
                 "usuarios": "Users",
-                "configuracion": "Settings",
-                "cerrar_sesion": "Logout",
-                "estado_sistema": "System status",
-                "funcionalidades": "Available features",
-                "idioma": "Language",
-                "hola": "Hello",
-                "tienes_rol": "you have role",
-                "administrador": "Administrator",
-                "usuario": "User",
-                "api_funcionando": "API working",
-                "autenticacion_activa": "Authentication active",
-                "configuracion_cargada": "Configuration loaded",
-                "tema": "Theme",
-                "oscuro": "Dark",
-                "claro": "Light",
-                "gestion_de": "Management of",
-                "administracion_de": "Administration of",
-                "estados_disponibles": "available states",
-                "gestion_completa_usuarios": "Complete user management",
-                "del_sistema": "system",
-                "personalizacion_avanzada": "Advanced customization",
-                "reportes_estadisticas": "Reports and statistics",
-                "analisis_metricas": "Analysis and metrics",
-                "panel_administrador": "Administrator Panel",
-                "como_administrador": "As administrator, you can customize messages, colors, ticket categories and more from the",
-                "controles_navbar": "Language and theme controls are available in the top navigation bar"
+                "configuracion": "Settings", 
+                "reportes": "Reports",
+                "pendientes_aprobacion": "Pending Approval",
+                "total_mensual": "Monthly Total",
+                "por_aprobar": "To Approve",
+                "aprobados_mes": "Approved this month",
+                "dietas": "Meals",
+                "aparcamiento": "Parking",
+                "gasolina": "Fuel",
+                "otros": "Other expenses",
+                "pendiente": "Pending",
+                "aprobado": "Approved", 
+                "rechazado": "Rejected",
+                "pagado": "Paid"
             },
             "ca": {
-                "bienvenida": "Benvingut al sistema de tickets de GrupLomi",
-                "footer": "© 2025 GrupLomi - Sistema de gestió de tickets",
+                "gastos": "Despeses",
+                "nuevo_gasto": "Nova Despesa",
+                "mis_gastos": "Les meves Despeses", 
                 "dashboard": "Tauler de Control",
-                "tickets": "Tickets",
                 "usuarios": "Usuaris",
                 "configuracion": "Configuració",
-                "cerrar_sesion": "Tancar Sessió",
-                "estado_sistema": "Estat del sistema",
-                "funcionalidades": "Funcionalitats disponibles",
-                "idioma": "Idioma",
-                "hola": "Hola",
-                "tienes_rol": "tens rol de",
-                "administrador": "Administrador",
-                "usuario": "Usuari",
-                "api_funcionando": "API funcionant",
-                "autenticacion_activa": "Autenticació activa",
-                "configuracion_cargada": "Configuració carregada",
-                "tema": "Tema",
-                "oscuro": "Fosc",
-                "claro": "Clar",
-                "gestion_de": "Gestió de",
-                "administracion_de": "Administració de",
-                "estados_disponibles": "estats disponibles",
-                "gestion_completa_usuarios": "Gestió completa d'usuaris",
-                "del_sistema": "del sistema",
-                "personalizacion_avanzada": "Personalització avançada",
-                "reportes_estadisticas": "Informes i estadístiques",
-                "analisis_metricas": "Anàlisi i mètriques",
-                "panel_administrador": "Panell d'Administrador",
-                "como_administrador": "Com a administrador, pots personalitzar missatges, colors, categories de tickets i més des de la secció de",
-                "controles_navbar": "Els controls d'idioma i tema estan disponibles a la barra de navegació superior"
-            },
-            "de": {
-                "bienvenida": "Willkommen im GrupLomi Ticket-System",
-                "footer": "© 2025 GrupLomi - Ticket-Management-System",
-                "dashboard": "Dashboard",
-                "tickets": "Tickets",
-                "usuarios": "Benutzer",
-                "configuracion": "Einstellungen",
-                "cerrar_sesion": "Abmelden",
-                "estado_sistema": "Systemstatus",
-                "funcionalidades": "Verfügbare Funktionen",
-                "idioma": "Sprache",
-                "hola": "Hallo",
-                "tienes_rol": "Sie haben die Rolle",
-                "administrador": "Administrator",
-                "usuario": "Benutzer",
-                "api_funcionando": "API funktioniert",
-                "autenticacion_activa": "Authentifizierung aktiv",
-                "configuracion_cargada": "Konfiguration geladen",
-                "tema": "Thema",
-                "oscuro": "Dunkel",
-                "claro": "Hell",
-                "gestion_de": "Verwaltung von",
-                "administracion_de": "Administration von",
-                "estados_disponibles": "verfügbare Zustände",
-                "gestion_completa_usuarios": "Vollständige Benutzerverwaltung",
-                "del_sistema": "System",
-                "personalizacion_avanzada": "Erweiterte Anpassung",
-                "reportes_estadisticas": "Berichte und Statistiken",
-                "analisis_metricas": "Analyse und Metriken",
-                "panel_administrador": "Administrator-Panel",
-                "como_administrador": "Als Administrator können Sie Nachrichten, Farben, Ticket-Kategorien und mehr im Bereich",
-                "controles_navbar": "Sprach- und Themensteuerung sind in der oberen Navigationsleiste verfügbar"
-            },
-            "it": {
-                "bienvenida": "Benvenuto nel sistema di ticket di GrupLomi",
-                "footer": "© 2025 GrupLomi - Sistema di gestione ticket",
-                "dashboard": "Dashboard",
-                "tickets": "Ticket",
-                "usuarios": "Utenti",
-                "configuracion": "Configurazione",
-                "cerrar_sesion": "Disconnetti",
-                "estado_sistema": "Stato del sistema",
-                "funcionalidades": "Funzionalità disponibili",
-                "idioma": "Lingua",
-                "hola": "Ciao",
-                "tienes_rol": "hai il ruolo di",
-                "administrador": "Amministratore",
-                "usuario": "Utente",
-                "api_funcionando": "API funzionante",
-                "autenticacion_activa": "Autenticazione attiva",
-                "configuracion_cargada": "Configurazione caricata",
-                "tema": "Tema",
-                "oscuro": "Scuro",
-                "claro": "Chiaro",
-                "gestion_de": "Gestione di",
-                "administracion_de": "Amministrazione di",
-                "estados_disponibles": "stati disponibili",
-                "gestion_completa_usuarios": "Gestione completa utenti",
-                "del_sistema": "del sistema",
-                "personalizacion_avanzada": "Personalizzazione avanzata",
-                "reportes_estadisticas": "Report e statistiche",
-                "analisis_metricas": "Analisi e metriche",
-                "panel_administrador": "Pannello Amministratore",
-                "como_administrador": "Come amministratore, puoi personalizzare messaggi, colori, categorie di ticket e altro dalla sezione",
-                "controles_navbar": "I controlli lingua e tema sono disponibili nella barra di navigazione superiore"
-            },
-            "pt": {
-                "bienvenida": "Bem-vindo ao sistema de tickets da GrupLomi",
-                "footer": "© 2025 GrupLomi - Sistema de gestão de tickets",
-                "dashboard": "Painel",
-                "tickets": "Tickets",
-                "usuarios": "Usuários",
-                "configuracion": "Configuração",
-                "cerrar_sesion": "Sair",
-                "estado_sistema": "Status do sistema",
-                "funcionalidades": "Funcionalidades disponíveis",
-                "idioma": "Idioma",
-                "hola": "Olá",
-                "tienes_rol": "você tem a função de",
-                "administrador": "Administrador",
-                "usuario": "Usuário",
-                "api_funcionando": "API funcionando",
-                "autenticacion_activa": "Autenticação ativa",
-                "configuracion_cargada": "Configuração carregada",
-                "tema": "Tema",
-                "oscuro": "Escuro",
-                "claro": "Claro",
-                "gestion_de": "Gestão de",
-                "administracion_de": "Administração de",
-                "estados_disponibles": "estados disponíveis",
-                "gestion_completa_usuarios": "Gestão completa de usuários",
-                "del_sistema": "do sistema",
-                "personalizacion_avanzada": "Personalização avançada",
-                "reportes_estadisticas": "Relatórios e estatísticas",
-                "analisis_metricas": "Análise e métricas",
-                "panel_administrador": "Painel do Administrador",
-                "como_administrador": "Como administrador, você pode personalizar mensagens, cores, categorias de tickets e mais na seção de",
-                "controles_navbar": "Os controles de idioma e tema estão disponíveis na barra de navegação superior"
+                "reportes": "Informes",
+                "pendientes_aprobacion": "Pendents d'Aprovació",
+                "total_mensual": "Total Mensual",
+                "por_aprobar": "Per Aprovar",
+                "aprobados_mes": "Aprovats aquest mes",
+                "dietas": "Dietes",
+                "aparcamiento": "Aparcament",
+                "gasolina": "Combustible", 
+                "otros": "Altres despeses",
+                "pendiente": "Pendent",
+                "aprobado": "Aprovat",
+                "rechazado": "Rebutjat",
+                "pagado": "Pagat"
             }
         }
     },
     "apariencia": {
         "modo_oscuro": False,
         "tema": "default"
-    },
-    "tickets": {
-        "estados": ["abierto", "en_progreso", "pendiente", "resuelto", "cerrado"],
-        "prioridades": ["baja", "media", "alta", "urgente"],
-        "categorias": ["hardware", "software", "red", "acceso", "otro"]
-    },
-    "notificaciones": {
-        "email_habilitado": True,
-        "notificar_asignacion": True,
-        "notificar_cambio_estado": True
     }
 }
 
 # Simulador simple de JWT
-JWT_SECRET = "mi-clave-secreta-jwt-2025"
+JWT_SECRET = "gruplomi-gastos-jwt-2025"
 
 def create_simple_token(user_data: Dict) -> str:
     import base64
@@ -283,6 +231,7 @@ def create_simple_token(user_data: Dict) -> str:
         'user_id': user_data['id'],
         'email': user_data['email'],
         'role': user_data['role'],
+        'departamento': user_data.get('departamento', ''),
         'exp': str(datetime.datetime.utcnow() + datetime.timedelta(hours=24))
     }
     token_data = json.dumps(payload)
@@ -297,7 +246,7 @@ def verify_simple_token(token: str) -> Optional[Dict]:
     except:
         return None
 
-class TicketsAPI(BaseHTTPRequestHandler):
+class GastosAPI(BaseHTTPRequestHandler):
     
     def _set_cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -346,26 +295,28 @@ class TicketsAPI(BaseHTTPRequestHandler):
             if path == '/' or path == '/api':
                 response = {
                     "status": "working",
-                    "message": "API completa con traducciones ampliadas - Version 13",
+                    "message": "🏢 GrupLomi - Sistema de Gestión de Gastos - v1.0",
+                    "sistema": "gastos_empresariales",
+                    "roles": ["administrador", "supervisor", "operario", "contabilidad"],
+                    "tipos_gasto": ["dietas", "aparcamiento", "gasolina", "otros"],
                     "endpoints": {
                         "auth": ["/auth/login", "/auth/me"],
-                        "tickets": ["/tickets", "/tickets/{id}"],
+                        "gastos": ["/gastos", "/gastos/{id}", "/gastos/mis-gastos"],
                         "usuarios": ["/usuarios", "/usuarios/{id}"],
                         "config": ["/config", "/config/admin"],
-                        "upload": ["/upload/logo"]
+                        "reportes": ["/reportes/dashboard", "/reportes/gastos"]
                     }
                 }
                 self._send_json_response(response)
                 
             elif path == '/health':
-                self._send_json_response({"status": "ok", "version": "13"})
+                self._send_json_response({"status": "ok", "version": "1.0", "sistema": "gastos"})
                 
             elif path == '/config':
-                # Configuración pública con idioma del usuario
+                # Configuración pública
                 user = self._verify_token()
                 idioma = query_params.get('lang', ['es'])[0]
                 
-                # Si hay usuario autenticado, usar su idioma preferido
                 if user:
                     user_data = next((u for u in USERS_DB.values() if u['id'] == user['user_id']), None)
                     if user_data and 'idioma_preferido' in user_data:
@@ -373,28 +324,15 @@ class TicketsAPI(BaseHTTPRequestHandler):
                 
                 public_config = {
                     "empresa": SYSTEM_CONFIG["empresa"],
+                    "gastos": SYSTEM_CONFIG["gastos"],
                     "idioma": {
                         "actual": idioma,
                         "disponibles": SYSTEM_CONFIG["idioma"]["idiomas_disponibles"],
                         "traducciones": SYSTEM_CONFIG["idioma"]["traducciones"].get(idioma, SYSTEM_CONFIG["idioma"]["traducciones"]["es"])
                     },
-                    "apariencia": SYSTEM_CONFIG["apariencia"],
-                    "tickets": {
-                        "estados": SYSTEM_CONFIG["tickets"]["estados"],
-                        "prioridades": SYSTEM_CONFIG["tickets"]["prioridades"],
-                        "categorias": SYSTEM_CONFIG["tickets"]["categorias"]
-                    }
+                    "apariencia": SYSTEM_CONFIG["apariencia"]
                 }
                 self._send_json_response(public_config)
-                
-            elif path == '/config/admin':
-                # Configuración completa solo para admin
-                user = self._verify_token()
-                if not user or user['role'] != 'admin':
-                    self._send_json_response({"error": "Acceso denegado - Solo administradores"}, 403)
-                    return
-                    
-                self._send_json_response(SYSTEM_CONFIG)
                 
             elif path == '/auth/me':
                 user = self._verify_token()
@@ -409,27 +347,79 @@ class TicketsAPI(BaseHTTPRequestHandler):
                 else:
                     self._send_json_response({"error": "Usuario no encontrado"}, 404)
                     
-            elif path == '/tickets':
+            elif path == '/gastos':
                 user = self._verify_token()
                 if not user:
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                     
-                tickets_list = list(TICKETS_DB.values())
-                if user['role'] != 'admin':
-                    tickets_list = [t for t in tickets_list if t['creado_por'] == user['user_id'] or t.get('asignado_a') == user['user_id']]
-                    
-                self._send_json_response(tickets_list)
+                gastos_list = list(GASTOS_DB.values())
                 
-            elif path == '/usuarios':
+                # Filtrar gastos según el rol
+                if user['role'] == 'operario':
+                    # Los operarios solo ven sus propios gastos
+                    gastos_list = [g for g in gastos_list if g['creado_por'] == user['user_id']]
+                elif user['role'] == 'supervisor':
+                    # Los supervisores ven gastos de su departamento o asignados a ellos
+                    gastos_list = [g for g in gastos_list if g.get('supervisor_asignado') == user['user_id']]
+                # Administradores y contabilidad ven todos
+                
+                self._send_json_response(gastos_list)
+                
+            elif path == '/gastos/mis-gastos':
                 user = self._verify_token()
-                if not user or user['role'] != 'admin':
-                    self._send_json_response({"error": "Acceso denegado - Solo administradores"}, 403)
+                if not user:
+                    self._send_json_response({"error": "Token requerido"}, 401)
                     return
                     
-                users_list = [{k: v for k, v in user.items() if k != 'password_hash'} 
-                             for user in USERS_DB.values()]
-                self._send_json_response(users_list)
+                mis_gastos = [g for g in GASTOS_DB.values() if g['creado_por'] == user['user_id']]
+                self._send_json_response(mis_gastos)
+                
+            elif path == '/gastos/pendientes':
+                user = self._verify_token()
+                if not user or user['role'] not in ['supervisor', 'administrador', 'contabilidad']:
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                    
+                pendientes = [g for g in GASTOS_DB.values() if g['estado'] == 'pendiente']
+                if user['role'] == 'supervisor':
+                    # Solo pendientes asignados al supervisor
+                    pendientes = [g for g in pendientes if g.get('supervisor_asignado') == user['user_id']]
+                    
+                self._send_json_response(pendientes)
+                
+            elif path == '/reportes/dashboard':
+                user = self._verify_token()
+                if not user:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                    
+                # Calcular estadísticas según el rol
+                total_gastos = len(GASTOS_DB)
+                total_importe = sum(g['importe'] for g in GASTOS_DB.values())
+                pendientes = len([g for g in GASTOS_DB.values() if g['estado'] == 'pendiente'])
+                aprobados = len([g for g in GASTOS_DB.values() if g['estado'] == 'aprobado'])
+                
+                if user['role'] == 'operario':
+                    mis_gastos = [g for g in GASTOS_DB.values() if g['creado_por'] == user['user_id']]
+                    total_gastos = len(mis_gastos)
+                    total_importe = sum(g['importe'] for g in mis_gastos)
+                    pendientes = len([g for g in mis_gastos if g['estado'] == 'pendiente'])
+                    aprobados = len([g for g in mis_gastos if g['estado'] == 'aprobado'])
+                
+                dashboard_data = {
+                    "total_gastos": total_gastos,
+                    "total_importe": total_importe,
+                    "pendientes": pendientes,
+                    "aprobados": aprobados,
+                    "por_tipo": {
+                        "dietas": len([g for g in GASTOS_DB.values() if g['tipo_gasto'] == 'dieta']),
+                        "aparcamiento": len([g for g in GASTOS_DB.values() if g['tipo_gasto'] == 'aparcamiento']),
+                        "gasolina": len([g for g in GASTOS_DB.values() if g['tipo_gasto'] == 'gasolina']),
+                        "otros": len([g for g in GASTOS_DB.values() if g['tipo_gasto'] == 'otros'])
+                    }
+                }
+                self._send_json_response(dashboard_data)
                 
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
@@ -473,46 +463,45 @@ class TicketsAPI(BaseHTTPRequestHandler):
                 }
                 self._send_json_response(response)
                 
-            elif path == '/usuarios/language':
-                # Cambiar idioma preferido del usuario
-                user = self._verify_token()
-                if not user:
-                    self._send_json_response({"error": "Token requerido"}, 401)
-                    return
-                
-                new_language = data.get('language')
-                if new_language not in SYSTEM_CONFIG["idioma"]["idiomas_disponibles"]:
-                    self._send_json_response({"error": "Idioma no soportado"}, 400)
-                    return
-                
-                # Actualizar idioma del usuario
-                for email, user_data in USERS_DB.items():
-                    if user_data['id'] == user['user_id']:
-                        user_data['idioma_preferido'] = new_language
-                        break
-                
-                self._send_json_response({"message": "Idioma actualizado", "language": new_language})
-                
-            elif path == '/tickets':
+            elif path == '/gastos':
                 user = self._verify_token()
                 if not user:
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                     
-                new_id = max(TICKETS_DB.keys()) + 1 if TICKETS_DB else 1
-                new_ticket = {
+                # Validar que el usuario puede crear gastos
+                if user['role'] not in ['operario', 'administrador']:
+                    self._send_json_response({"error": "Sin permisos para crear gastos"}, 403)
+                    return
+                    
+                new_id = max(GASTOS_DB.keys()) + 1 if GASTOS_DB else 1
+                nuevo_gasto = {
                     "id": new_id,
-                    "titulo": data.get('titulo'),
+                    "tipo_gasto": data.get('tipo_gasto'),
+                    "concepto": data.get('concepto'),
                     "descripcion": data.get('descripcion'),
-                    "estado": "abierto",
-                    "prioridad": data.get('prioridad', 'media'),
+                    "importe": float(data.get('importe', 0)),
+                    "fecha_gasto": data.get('fecha_gasto'),
+                    "estado": "pendiente",
                     "creado_por": user['user_id'],
+                    "supervisor_asignado": data.get('supervisor_asignado'),
                     "fecha_creacion": datetime.datetime.utcnow().isoformat() + 'Z',
-                    "categoria": data.get('categoria', 'general'),
-                    "asignado_a": data.get('asignado_a')
+                    "archivos_adjuntos": data.get('archivos_adjuntos', []),
+                    "observaciones": data.get('observaciones', ''),
+                    "fecha_aprobacion": None,
+                    "aprobado_por": None
                 }
-                TICKETS_DB[new_id] = new_ticket
-                self._send_json_response(new_ticket, 201)
+                
+                # Validar límites
+                tipo_config = next((t for t in SYSTEM_CONFIG['gastos']['tipos_gasto'] if t['id'] == nuevo_gasto['tipo_gasto']), None)
+                if tipo_config and nuevo_gasto['importe'] > tipo_config['limite_diario']:
+                    self._send_json_response({
+                        "error": f"El importe supera el límite diario de {tipo_config['limite_diario']}€ para {tipo_config['nombre']}"
+                    }, 400)
+                    return
+                
+                GASTOS_DB[new_id] = nuevo_gasto
+                self._send_json_response(nuevo_gasto, 201)
                 
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
@@ -531,38 +520,68 @@ class TicketsAPI(BaseHTTPRequestHandler):
                 self._send_json_response({"error": "Token requerido"}, 401)
                 return
                 
-            if path == '/config' or path == '/config/admin':
-                if user['role'] != 'admin':
-                    self._send_json_response({"error": "Solo administradores pueden cambiar la configuración"}, 403)
+            if path.startswith('/gastos/') and '/aprobar' in path:
+                # Aprobar gasto
+                gasto_id = int(path.split('/')[-2])
+                if gasto_id not in GASTOS_DB:
+                    self._send_json_response({"error": "Gasto no encontrado"}, 404)
                     return
                     
-                # Actualizar configuración
-                for key, value in data.items():
-                    if key in SYSTEM_CONFIG:
-                        if isinstance(SYSTEM_CONFIG[key], dict) and isinstance(value, dict):
-                            SYSTEM_CONFIG[key].update(value)
-                        else:
-                            SYSTEM_CONFIG[key] = value
-                            
-                self._send_json_response({"message": "Configuración actualizada", "config": SYSTEM_CONFIG})
+                gasto = GASTOS_DB[gasto_id]
                 
-            elif path.startswith('/tickets/'):
-                ticket_id = int(path.split('/')[-1])
-                if ticket_id not in TICKETS_DB:
-                    self._send_json_response({"error": "Ticket no encontrado"}, 404)
+                # Verificar permisos de aprobación
+                if user['role'] not in ['supervisor', 'administrador', 'contabilidad']:
+                    self._send_json_response({"error": "Sin permisos para aprobar gastos"}, 403)
                     return
                     
-                ticket = TICKETS_DB[ticket_id]
+                # Verificar límites de aprobación
+                limite = SYSTEM_CONFIG['gastos']['limites_aprobacion'].get(user['role'], 0)
+                if gasto['importe'] > limite:
+                    self._send_json_response({"error": f"El importe supera tu límite de aprobación ({limite}€)"}, 403)
+                    return
+                    
+                accion = data.get('accion')  # 'aprobar' o 'rechazar'
+                observaciones = data.get('observaciones', '')
                 
-                if user['role'] != 'admin' and ticket['creado_por'] != user['user_id']:
-                    self._send_json_response({"error": "Sin permisos para editar este ticket"}, 403)
+                if accion == 'aprobar':
+                    gasto['estado'] = 'aprobado'
+                elif accion == 'rechazar':
+                    gasto['estado'] = 'rechazado'
+                else:
+                    self._send_json_response({"error": "Acción no válida"}, 400)
+                    return
+                
+                gasto['fecha_aprobacion'] = datetime.datetime.utcnow().isoformat() + 'Z'
+                gasto['aprobado_por'] = user['user_id']
+                gasto['observaciones'] = observaciones
+                
+                self._send_json_response(gasto)
+                
+            elif path.startswith('/gastos/'):
+                # Actualizar gasto
+                gasto_id = int(path.split('/')[-1])
+                if gasto_id not in GASTOS_DB:
+                    self._send_json_response({"error": "Gasto no encontrado"}, 404)
                     return
                     
+                gasto = GASTOS_DB[gasto_id]
+                
+                # Solo el creador o admin puede editar
+                if user['role'] != 'administrador' and gasto['creado_por'] != user['user_id']:
+                    self._send_json_response({"error": "Sin permisos para editar este gasto"}, 403)
+                    return
+                    
+                # No se puede editar si ya está aprobado o pagado
+                if gasto['estado'] in ['aprobado', 'pagado']:
+                    self._send_json_response({"error": "No se puede editar un gasto aprobado o pagado"}, 400)
+                    return
+                    
+                # Actualizar campos
                 for key, value in data.items():
-                    if key in ['titulo', 'descripcion', 'estado', 'prioridad', 'asignado_a', 'categoria']:
-                        ticket[key] = value
+                    if key in ['concepto', 'descripcion', 'importe', 'fecha_gasto', 'tipo_gasto']:
+                        gasto[key] = value
                         
-                self._send_json_response(ticket)
+                self._send_json_response(gasto)
                 
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
@@ -580,18 +599,26 @@ class TicketsAPI(BaseHTTPRequestHandler):
                 self._send_json_response({"error": "Token requerido"}, 401)
                 return
                 
-            if path.startswith('/tickets/'):
-                ticket_id = int(path.split('/')[-1])
-                if ticket_id not in TICKETS_DB:
-                    self._send_json_response({"error": "Ticket no encontrado"}, 404)
+            if path.startswith('/gastos/'):
+                gasto_id = int(path.split('/')[-1])
+                if gasto_id not in GASTOS_DB:
+                    self._send_json_response({"error": "Gasto no encontrado"}, 404)
                     return
                 
-                if user['role'] != 'admin':
-                    self._send_json_response({"error": "Solo administradores pueden eliminar tickets"}, 403)
+                gasto = GASTOS_DB[gasto_id]
+                
+                # Solo admin o el creador pueden eliminar
+                if user['role'] != 'administrador' and gasto['creado_por'] != user['user_id']:
+                    self._send_json_response({"error": "Sin permisos para eliminar este gasto"}, 403)
                     return
                     
-                del TICKETS_DB[ticket_id]
-                self._send_json_response({"message": "Ticket eliminado"})
+                # No se puede eliminar si está aprobado o pagado
+                if gasto['estado'] in ['aprobado', 'pagado']:
+                    self._send_json_response({"error": "No se puede eliminar un gasto aprobado o pagado"}, 400)
+                    return
+                    
+                del GASTOS_DB[gasto_id]
+                self._send_json_response({"message": "Gasto eliminado"})
                 
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
@@ -599,4 +626,4 @@ class TicketsAPI(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
-handler = TicketsAPI
+handler = GastosAPI
