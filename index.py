@@ -14,7 +14,8 @@ USERS_DB = {
         "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
         "nombre": "Administrador",
         "role": "admin",
-        "activo": True
+        "activo": True,
+        "idioma_preferido": "es"
     },
     "user@gruplomi.com": {
         "id": 2,
@@ -22,7 +23,8 @@ USERS_DB = {
         "password_hash": hashlib.sha256("user123".encode()).hexdigest(),
         "nombre": "Usuario Test",
         "role": "usuario",
-        "activo": True
+        "activo": True,
+        "idioma_preferido": "es"
     }
 }
 
@@ -40,11 +42,12 @@ TICKETS_DB = {
     }
 }
 
-# Configuración del sistema con soporte multiidioma
+# Configuración del sistema con soporte multiidioma ampliado
 SYSTEM_CONFIG = {
     "empresa": {
         "nombre": "GrupLomi",
         "logo_url": "/logo.png",
+        "logo_file": None,
         "colores": {
             "primario": "#0066CC",
             "secundario": "#f8f9fa",
@@ -53,7 +56,7 @@ SYSTEM_CONFIG = {
     },
     "idioma": {
         "predeterminado": "es",
-        "idiomas_disponibles": ["es", "en", "ca"],
+        "idiomas_disponibles": ["es", "en", "ca", "de", "it", "pt"],
         "traducciones": {
             "es": {
                 "bienvenida": "Bienvenido al sistema de tickets de GrupLomi",
@@ -64,7 +67,8 @@ SYSTEM_CONFIG = {
                 "configuracion": "Configuración",
                 "cerrar_sesion": "Cerrar Sesión",
                 "estado_sistema": "Estado del sistema",
-                "funcionalidades": "Funcionalidades disponibles"
+                "funcionalidades": "Funcionalidades disponibles",
+                "idioma": "Idioma"
             },
             "en": {
                 "bienvenida": "Welcome to GrupLomi ticket system",
@@ -75,7 +79,8 @@ SYSTEM_CONFIG = {
                 "configuracion": "Settings",
                 "cerrar_sesion": "Logout",
                 "estado_sistema": "System status",
-                "funcionalidades": "Available features"
+                "funcionalidades": "Available features",
+                "idioma": "Language"
             },
             "ca": {
                 "bienvenida": "Benvingut al sistema de tickets de GrupLomi",
@@ -86,7 +91,44 @@ SYSTEM_CONFIG = {
                 "configuracion": "Configuració",
                 "cerrar_sesion": "Tancar Sessió",
                 "estado_sistema": "Estat del sistema",
-                "funcionalidades": "Funcionalitats disponibles"
+                "funcionalidades": "Funcionalitats disponibles",
+                "idioma": "Idioma"
+            },
+            "de": {
+                "bienvenida": "Willkommen im GrupLomi Ticket-System",
+                "footer": "© 2025 GrupLomi - Ticket-Management-System",
+                "dashboard": "Dashboard",
+                "tickets": "Tickets",
+                "usuarios": "Benutzer",
+                "configuracion": "Einstellungen",
+                "cerrar_sesion": "Abmelden",
+                "estado_sistema": "Systemstatus",
+                "funcionalidades": "Verfügbare Funktionen",
+                "idioma": "Sprache"
+            },
+            "it": {
+                "bienvenida": "Benvenuto nel sistema di ticket di GrupLomi",
+                "footer": "© 2025 GrupLomi - Sistema di gestione ticket",
+                "dashboard": "Dashboard",
+                "tickets": "Ticket",
+                "usuarios": "Utenti",
+                "configuracion": "Configurazione",
+                "cerrar_sesion": "Disconnetti",
+                "estado_sistema": "Stato del sistema",
+                "funcionalidades": "Funzionalità disponibili",
+                "idioma": "Lingua"
+            },
+            "pt": {
+                "bienvenida": "Bem-vindo ao sistema de tickets da GrupLomi",
+                "footer": "© 2025 GrupLomi - Sistema de gestão de tickets",
+                "dashboard": "Painel",
+                "tickets": "Tickets",
+                "usuarios": "Usuários",
+                "configuracion": "Configuração",
+                "cerrar_sesion": "Sair",
+                "estado_sistema": "Status do sistema",
+                "funcionalidades": "Funcionalidades disponíveis",
+                "idioma": "Idioma"
             }
         }
     },
@@ -178,22 +220,30 @@ class TicketsAPI(BaseHTTPRequestHandler):
             if path == '/' or path == '/api':
                 response = {
                     "status": "working",
-                    "message": "API completa con configuración e idiomas - Version 11",
+                    "message": "API completa con configuración e idiomas ampliados - Version 12",
                     "endpoints": {
                         "auth": ["/auth/login", "/auth/me"],
                         "tickets": ["/tickets", "/tickets/{id}"],
                         "usuarios": ["/usuarios", "/usuarios/{id}"],
-                        "config": ["/config", "/config/admin"]
+                        "config": ["/config", "/config/admin"],
+                        "upload": ["/upload/logo"]
                     }
                 }
                 self._send_json_response(response)
                 
             elif path == '/health':
-                self._send_json_response({"status": "ok", "version": "11"})
+                self._send_json_response({"status": "ok", "version": "12"})
                 
             elif path == '/config':
-                # Configuración pública
+                # Configuración pública con idioma del usuario
+                user = self._verify_token()
                 idioma = query_params.get('lang', ['es'])[0]
+                
+                # Si hay usuario autenticado, usar su idioma preferido
+                if user:
+                    user_data = next((u for u in USERS_DB.values() if u['id'] == user['user_id']), None)
+                    if user_data and 'idioma_preferido' in user_data:
+                        idioma = user_data['idioma_preferido']
                 
                 public_config = {
                     "empresa": SYSTEM_CONFIG["empresa"],
@@ -296,6 +346,26 @@ class TicketsAPI(BaseHTTPRequestHandler):
                     "user": {k: v for k, v in user.items() if k != 'password_hash'}
                 }
                 self._send_json_response(response)
+                
+            elif path == '/usuarios/language':
+                # Cambiar idioma preferido del usuario
+                user = self._verify_token()
+                if not user:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                new_language = data.get('language')
+                if new_language not in SYSTEM_CONFIG["idioma"]["idiomas_disponibles"]:
+                    self._send_json_response({"error": "Idioma no soportado"}, 400)
+                    return
+                
+                # Actualizar idioma del usuario
+                for email, user_data in USERS_DB.items():
+                    if user_data['id'] == user['user_id']:
+                        user_data['idioma_preferido'] = new_language
+                        break
+                
+                self._send_json_response({"message": "Idioma actualizado", "language": new_language})
                 
             elif path == '/tickets':
                 user = self._verify_token()
