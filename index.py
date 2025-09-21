@@ -1,7 +1,3 @@
-                    nuevo_gasto = {
-                        "id": new_id,
-                        "tipo_gasto": tipo_gasto,
-                        "descripcion": descripcion,
                         "obra": obra,
                         "importe": round(importe_calculado, 2),
                         "fecha_gasto": data.get('fecha_gasto'),
