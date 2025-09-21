@@ -317,6 +317,101 @@ SYSTEM_CONFIG = {
             }
         }
     },
+    "tickets": {
+        "estados": [
+            {"id": "abierto", "nombre": "Abierto", "color": "#17a2b8"},
+            {"id": "en_progreso", "nombre": "En Progreso", "color": "#ffc107"},
+            {"id": "pendiente_aprobacion", "nombre": "Pendiente Aprobación", "color": "#fd7e14"},
+            {"id": "resuelto", "nombre": "Resuelto", "color": "#28a745"},
+            {"id": "cerrado", "nombre": "Cerrado", "color": "#6c757d"},
+            {"id": "rechazado", "nombre": "Rechazado", "color": "#dc3545"}
+        ],
+        "prioridades": [
+            {"id": "baja", "nombre": "Baja", "color": "#6c757d", "orden": 1},
+            {"id": "normal", "nombre": "Normal", "color": "#17a2b8", "orden": 2},
+            {"id": "alta", "nombre": "Alta", "color": "#ffc107", "orden": 3},
+            {"id": "urgente", "nombre": "Urgente", "color": "#fd7e14", "orden": 4},
+            {"id": "critica", "nombre": "Crítica", "color": "#dc3545", "orden": 5}
+        ],
+        "categorias": [
+            {"id": "soporte_tecnico", "nombre": "Soporte Técnico", "descripcion": "Problemas técnicos y de software"},
+            {"id": "recursos_humanos", "nombre": "Recursos Humanos", "descripcion": "Consultas de personal y nóminas"},
+            {"id": "administracion", "nombre": "Administración", "descripcion": "Gestiones administrativas"},
+            {"id": "mantenimiento", "nombre": "Mantenimiento", "descripcion": "Mantenimiento de equipos e instalaciones"},
+            {"id": "compras", "nombre": "Compras", "descripcion": "Solicitudes de compra y proveedores"},
+            {"id": "general", "nombre": "General", "descripcion": "Consultas generales"}
+        ],
+        "configuracion": {
+            "auto_asignar_supervisor": True,
+            "tiempo_limite_resolucion": 72,
+            "permitir_reabrir": True,
+            "requiere_aprobacion_cierre": False,
+            "adjuntos_permitidos": [".jpg", ".jpeg", ".png", ".pdf", ".doc", ".docx", ".xls", ".xlsx"],
+            "tamano_maximo_adjunto": 10
+        }
+    },
+    "notificaciones": {
+        "email_habilitado": True,
+        "plantilla_asunto": "[{{empresa}}] {{tipo}}: {{titulo}}",
+        "configuracion_email": {
+            "servidor_smtp": "smtp.gmail.com",
+            "puerto": 587,
+            "ssl_habilitado": True,
+            "usuario": "admin@gruplomi.com",
+            "password": "******"
+        },
+        "eventos": {
+            "gasto_creado": {
+                "habilitado": True,
+                "destinatarios": ["supervisor", "contabilidad"],
+                "plantilla": "Se ha creado un nuevo gasto por {{usuario}} por valor de {{importe}}€"
+            },
+            "gasto_aprobado": {
+                "habilitado": True,
+                "destinatarios": ["creador", "contabilidad"],
+                "plantilla": "Tu gasto #{{id}} ha sido aprobado por {{aprobador}}"
+            },
+            "gasto_rechazado": {
+                "habilitado": True,
+                "destinatarios": ["creador"],
+                "plantilla": "Tu gasto #{{id}} ha sido rechazado. Motivo: {{motivo}}"
+            },
+            "ticket_creado": {
+                "habilitado": True,
+                "destinatarios": ["asignado", "supervisor"],
+                "plantilla": "Nuevo ticket #{{id}}: {{titulo}}"
+            },
+            "ticket_asignado": {
+                "habilitado": True,
+                "destinatarios": ["asignado"],
+                "plantilla": "Se te ha asignado el ticket #{{id}}: {{titulo}}"
+            },
+            "ticket_resuelto": {
+                "habilitado": True,
+                "destinatarios": ["creador", "supervisor"],
+                "plantilla": "El ticket #{{id}} ha sido resuelto"
+            }
+        },
+        "recordatorios": {
+            "gastos_pendientes": {
+                "habilitado": True,
+                "frecuencia": "diaria",
+                "hora": "09:00",
+                "destinatarios": ["supervisor", "contabilidad"]
+            },
+            "tickets_sin_asignar": {
+                "habilitado": True,
+                "frecuencia": "cada_hora",
+                "destinatarios": ["administrador"]
+            },
+            "tickets_vencidos": {
+                "habilitado": True,
+                "frecuencia": "diaria",
+                "hora": "10:00",
+                "destinatarios": ["supervisor", "administrador"]
+            }
+        }
+    },
     "apariencia": {
         "modo_oscuro": False,
         "tema": "default"
@@ -441,6 +536,8 @@ class GastosAPI(BaseHTTPRequestHandler):
                     "empresa": SYSTEM_CONFIG["empresa"],
                     "gastos": SYSTEM_CONFIG["gastos"],
                     "idioma": SYSTEM_CONFIG["idioma"],
+                    "tickets": SYSTEM_CONFIG["tickets"],
+                    "notificaciones": SYSTEM_CONFIG["notificaciones"],
                     "apariencia": SYSTEM_CONFIG["apariencia"]
                 }
                 self._send_json_response(admin_config)
@@ -665,6 +762,10 @@ class GastosAPI(BaseHTTPRequestHandler):
                     SYSTEM_CONFIG['gastos'].update(data['gastos'])
                 if 'idioma' in data:
                     SYSTEM_CONFIG['idioma'].update(data['idioma'])
+                if 'tickets' in data:
+                    SYSTEM_CONFIG['tickets'].update(data['tickets'])
+                if 'notificaciones' in data:
+                    SYSTEM_CONFIG['notificaciones'].update(data['notificaciones'])
                 if 'apariencia' in data:
                     SYSTEM_CONFIG['apariencia'].update(data['apariencia'])
                 
@@ -676,6 +777,8 @@ class GastosAPI(BaseHTTPRequestHandler):
                         "empresa": SYSTEM_CONFIG["empresa"],
                         "gastos": SYSTEM_CONFIG["gastos"],
                         "idioma": SYSTEM_CONFIG["idioma"],
+                        "tickets": SYSTEM_CONFIG["tickets"],
+                        "notificaciones": SYSTEM_CONFIG["notificaciones"],
                         "apariencia": SYSTEM_CONFIG["apariencia"]
                     }
                 }
