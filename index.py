@@ -189,7 +189,7 @@ SYSTEM_CONFIG = {
     },
     "idioma": {
         "predeterminado": "es",
-        "idiomas_disponibles": ["es", "en", "ca"],
+        "idiomas_disponibles": ["es", "en", "ca", "de", "it", "pt"],
         "traducciones": {
             "es": {
                 "gastos": "Gastos",
@@ -253,6 +253,69 @@ SYSTEM_CONFIG = {
                 "aprobado": "Aprovat",
                 "rechazado": "Rebutjat",
                 "pagado": "Pagat"
+            },
+            "de": {
+                "gastos": "Ausgaben",
+                "nuevo_gasto": "Neue Ausgabe",
+                "mis_gastos": "Meine Ausgaben",
+                "dashboard": "Dashboard",
+                "usuarios": "Benutzer",
+                "configuracion": "Einstellungen",
+                "reportes": "Berichte",
+                "pendientes_aprobacion": "Genehmigung ausstehend",
+                "total_mensual": "Monatssumme",
+                "por_aprobar": "Zu genehmigen",
+                "aprobados_mes": "Genehmigt diesen Monat",
+                "dietas": "Mahlzeiten",
+                "aparcamiento": "Parken",
+                "gasolina": "Kraftstoff",
+                "otros": "Andere Ausgaben",
+                "pendiente": "Ausstehend",
+                "aprobado": "Genehmigt",
+                "rechazado": "Abgelehnt",
+                "pagado": "Bezahlt"
+            },
+            "it": {
+                "gastos": "Spese",
+                "nuevo_gasto": "Nuova Spesa",
+                "mis_gastos": "Le mie Spese",
+                "dashboard": "Dashboard",
+                "usuarios": "Utenti",
+                "configuracion": "Impostazioni",
+                "reportes": "Report",
+                "pendientes_aprobacion": "In attesa di approvazione",
+                "total_mensual": "Totale mensile",
+                "por_aprobar": "Da approvare",
+                "aprobados_mes": "Approvati questo mese",
+                "dietas": "Pasti",
+                "aparcamiento": "Parcheggio",
+                "gasolina": "Carburante",
+                "otros": "Altre spese",
+                "pendiente": "In attesa",
+                "aprobado": "Approvato",
+                "rechazado": "Rifiutato",
+                "pagado": "Pagato"
+            },
+            "pt": {
+                "gastos": "Despesas",
+                "nuevo_gasto": "Nova Despesa",
+                "mis_gastos": "Minhas Despesas",
+                "dashboard": "Painel",
+                "usuarios": "Usuários",
+                "configuracion": "Configurações",
+                "reportes": "Relatórios",
+                "pendientes_aprobacion": "Aguardando aprovação",
+                "total_mensual": "Total mensal",
+                "por_aprobar": "Para aprovar",
+                "aprobados_mes": "Aprovados este mês",
+                "dietas": "Refeições",
+                "aparcamiento": "Estacionamento",
+                "gasolina": "Combustível",
+                "otros": "Outras despesas",
+                "pendiente": "Pendente",
+                "aprobado": "Aprovado",
+                "rechazado": "Rejeitado",
+                "pagado": "Pago"
             }
         }
     },
@@ -373,6 +436,40 @@ class GastosAPI(BaseHTTPRequestHandler):
                     "apariencia": SYSTEM_CONFIG["apariencia"]
                 }
                 self._send_json_response(public_config)
+                
+            elif path == '/config/language':
+                # Cambiar idioma del usuario
+                if not user:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                    
+                nuevo_idioma = data.get('language')
+                if not nuevo_idioma:
+                    self._send_json_response({"error": "Idioma requerido"}, 400)
+                    return
+                    
+                # Verificar que el idioma esté disponible
+                if nuevo_idioma not in SYSTEM_CONFIG['idioma']['idiomas_disponibles']:
+                    self._send_json_response({"error": "Idioma no disponible"}, 400)
+                    return
+                    
+                # Actualizar idioma del usuario
+                user_data = next((u for u in USERS_DB.values() if u['id'] == user['user_id']), None)
+                if user_data:
+                    user_data['idioma_preferido'] = nuevo_idioma
+                    
+                # Devolver nueva configuración con traducciones del idioma seleccionado
+                updated_config = {
+                    "empresa": SYSTEM_CONFIG["empresa"],
+                    "gastos": SYSTEM_CONFIG["gastos"],
+                    "idioma": {
+                        "actual": nuevo_idioma,
+                        "disponibles": SYSTEM_CONFIG["idioma"]["idiomas_disponibles"],
+                        "traducciones": SYSTEM_CONFIG["idioma"]["traducciones"].get(nuevo_idioma, SYSTEM_CONFIG["idioma"]["traducciones"]["es"])
+                    },
+                    "apariencia": SYSTEM_CONFIG["apariencia"]
+                }
+                self._send_json_response(updated_config)
                 
             elif path == '/config/admin':
                 # Configuración completa para administradores
