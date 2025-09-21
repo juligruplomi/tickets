@@ -652,6 +652,35 @@ class GastosAPI(BaseHTTPRequestHandler):
                 }
                 self._send_json_response(updated_config)
                 
+            elif path == '/config/admin':
+                # Actualizar configuración del sistema (modo demo)
+                if user['role'] != 'administrador':
+                    self._send_json_response({"error": "Sin permisos para modificar configuración"}, 403)
+                    return
+                
+                # Actualizar SYSTEM_CONFIG con los nuevos datos (en memoria)
+                if 'empresa' in data:
+                    SYSTEM_CONFIG['empresa'].update(data['empresa'])
+                if 'gastos' in data:
+                    SYSTEM_CONFIG['gastos'].update(data['gastos'])
+                if 'idioma' in data:
+                    SYSTEM_CONFIG['idioma'].update(data['idioma'])
+                if 'apariencia' in data:
+                    SYSTEM_CONFIG['apariencia'].update(data['apariencia'])
+                
+                # Devolver configuración actualizada
+                updated_config = {
+                    "success": True,
+                    "message": "Configuración actualizada correctamente (MODO DEMO - cambios temporales)",
+                    "config": {
+                        "empresa": SYSTEM_CONFIG["empresa"],
+                        "gastos": SYSTEM_CONFIG["gastos"],
+                        "idioma": SYSTEM_CONFIG["idioma"],
+                        "apariencia": SYSTEM_CONFIG["apariencia"]
+                    }
+                }
+                self._send_json_response(updated_config)
+                
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
