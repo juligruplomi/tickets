@@ -482,6 +482,59 @@ class GastosAPI(BaseHTTPRequestHandler):
                 mis_gastos = [g for g in GASTOS_DB.values() if g['creado_por'] == user['user_id']]
                 self._send_json_response(mis_gastos)
                 
+            elif path == '/usuarios':
+                user = self._verify_token()
+                if not user or user['role'] != 'administrador':
+                    self._send_json_response({"error": "Sin permisos para ver usuarios"}, 403)
+                    return
+                
+                # Devolver todos los usuarios sin el hash de contraseña
+                usuarios_list = []
+                for usuario in USERS_DB.values():
+                    user_safe = {k: v for k, v in usuario.items() if k != 'password_hash'}
+                    usuarios_list.append(user_safe)
+                
+                # Añadir información del supervisor
+                for usuario in usuarios_list:
+                    if usuario.get('supervisor_id'):
+                        supervisor = next((u for u in USERS_DB.values() if u['id'] == usuario['supervisor_id']), None)
+                        if supervisor:
+                            usuario['supervisor_nombre'] = f"{supervisor['nombre']} {supervisor['apellidos']}"
+                    else:
+                        usuario['supervisor_nombre'] = None
+                
+                self._send_json_response(usuarios_list)
+                
+            elif path.startswith('/usuarios/'):
+                user = self._verify_token()
+                if not user:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                user_id = int(path.split('/')[-1])
+                target_user = next((u for u in USERS_DB.values() if u['id'] == user_id), None)
+                
+                if not target_user:
+                    self._send_json_response({"error": "Usuario no encontrado"}, 404)
+                    return
+                
+                # Solo admin puede ver cualquier usuario, otros solo su propio perfil
+                if user['role'] != 'administrador' and user['user_id'] != user_id:
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                user_safe = {k: v for k, v in target_user.items() if k != 'password_hash'}
+                
+                # Añadir información del supervisor
+                if user_safe.get('supervisor_id'):
+                    supervisor = next((u for u in USERS_DB.values() if u['id'] == user_safe['supervisor_id']), None)
+                    if supervisor:
+                        user_safe['supervisor_nombre'] = f"{supervisor['nombre']} {supervisor['apellidos']}"
+                else:
+                    user_safe['supervisor_nombre'] = None
+                
+                self._send_json_response(user_safe)
+                
             elif path == '/reportes/dashboard':
                 user = self._verify_token()
                 if not user:
