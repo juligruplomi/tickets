@@ -374,6 +374,32 @@ class GastosAPI(BaseHTTPRequestHandler):
                 }
                 self._send_json_response(public_config)
                 
+            elif path == '/config/admin':
+                # Configuración completa para administradores
+                user = self._verify_token()
+                if not user or user['role'] != 'administrador':
+                    self._send_json_response({"error": "Sin permisos para acceder a configuración de admin"}, 403)
+                    return
+                
+                # Devolver configuración completa incluyendo estructura para frontend
+                admin_config = {
+                    "empresa": SYSTEM_CONFIG["empresa"],
+                    "gastos": SYSTEM_CONFIG["gastos"],
+                    "idioma": SYSTEM_CONFIG["idioma"],
+                    "apariencia": SYSTEM_CONFIG["apariencia"],
+                    "tickets": {
+                        "estados": ["nuevo", "en_progreso", "resuelto", "cerrado"],
+                        "prioridades": ["baja", "media", "alta", "crítica"],
+                        "categorias": ["soporte", "desarrollo", "infraestructura", "otros"]
+                    },
+                    "notificaciones": {
+                        "email_habilitado": True,
+                        "notificar_asignacion": True,
+                        "notificar_cambio_estado": True
+                    }
+                }
+                self._send_json_response(admin_config)
+                
             elif path == '/auth/me':
                 user = self._verify_token()
                 if not user:
@@ -824,6 +850,35 @@ class GastosAPI(BaseHTTPRequestHandler):
                     gasto['importe'] = round(float(data['kilometros']) * float(data['precio_km']), 2)
                         
                 self._send_json_response(gasto)
+                
+            elif path == '/config/admin':
+                # Actualizar configuración del sistema
+                if user['role'] != 'administrador':
+                    self._send_json_response({"error": "Sin permisos para modificar configuración"}, 403)
+                    return
+                
+                # Actualizar SYSTEM_CONFIG con los nuevos datos
+                if 'empresa' in data:
+                    SYSTEM_CONFIG['empresa'].update(data['empresa'])
+                if 'gastos' in data:
+                    SYSTEM_CONFIG['gastos'].update(data['gastos'])
+                if 'idioma' in data:
+                    SYSTEM_CONFIG['idioma'].update(data['idioma'])
+                if 'apariencia' in data:
+                    SYSTEM_CONFIG['apariencia'].update(data['apariencia'])
+                
+                # Devolver configuración actualizada
+                updated_config = {
+                    "success": True,
+                    "message": "Configuración actualizada correctamente",
+                    "config": {
+                        "empresa": SYSTEM_CONFIG["empresa"],
+                        "gastos": SYSTEM_CONFIG["gastos"],
+                        "idioma": SYSTEM_CONFIG["idioma"],
+                        "apariencia": SYSTEM_CONFIG["apariencia"]
+                    }
+                }
+                self._send_json_response(updated_config)
                 
             elif path.startswith('/usuarios/'):
                 user_id = int(path.split('/')[-1])
