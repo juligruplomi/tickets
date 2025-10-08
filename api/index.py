@@ -229,31 +229,70 @@ def read_root():
 def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow()}
 
+@app.get("/debug/db")
+def debug_database():
+    """Endpoint de diagnóstico para verificar la conexión a la base de datos"""
+    try:
+        # Intentar conectar
+        db = SessionLocal()
+        
+        # Intentar hacer una query simple
+        result = db.execute("SELECT 1 as test").fetchone()
+        
+        # Intentar contar usuarios
+        user_count = db.query(User).count()
+        
+        db.close()
+        
+        return {
+            "status": "success",
+            "database_url": DATABASE_URL.replace(DATABASE_URL.split('@')[0].split('://')[1], "***"),  # Ocultar credenciales
+            "connection": "OK",
+            "test_query": "OK",
+            "users_count": user_count
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "database_url": DATABASE_URL.replace(DATABASE_URL.split('@')[0].split('://')[1], "***")
+        }
+
 # === AUTENTICACIÓN ===
 
 @app.post("/auth/login")
 def login(user_login: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == user_login.email).first()
-    if not user or not verify_password(user_login.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-    
-    if not user.activo:
-        raise HTTPException(status_code=401, detail="Usuario desactivado")
-    
-    access_token = create_access_token({"user_id": user.id, "email": user.email, "role": user.role})
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "nombre": user.nombre,
-            "apellidos": user.apellidos,
-            "role": user.role,
-            "departamento": user.departamento
+    try:
+        user = db.query(User).filter(User.email == user_login.email).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+        
+        if not verify_password(user_login.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+        
+        if not user.activo:
+            raise HTTPException(status_code=401, detail="Usuario desactivado")
+        
+        access_token = create_access_token({"user_id": user.id, "email": user.email, "role": user.role})
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "nombre": user.nombre,
+                "apellidos": user.apellidos,
+                "role": user.role,
+                "departamento": user.departamento
+            }
         }
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log del error para debugging
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 @app.get("/auth/me")
 def get_me(current_user: User = Depends(get_current_user)):
