@@ -400,7 +400,7 @@ def delete_gasto(
 @app.get("/config")
 def get_config():
     """Configuración pública (sin autenticación)"""
-    return {
+    config_data = {
         "empresa_nombre": "GrupLomi",
         "version": "2.0.0",
         "logo_url": None,
@@ -425,6 +425,11 @@ def get_config():
             {"value": "contabilidad", "label": "Contabilidad"},
             {"value": "admin", "label": "Administrador"}
         ]
+    }
+    # Devolver en ambos formatos para compatibilidad
+    return {
+        **config_data,  # Campos directamente
+        "config": config_data  # También anidado
     }
 
 @app.get("/config/sistema")
