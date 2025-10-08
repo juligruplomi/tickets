@@ -1,6 +1,8 @@
 """
-Backend FastAPI para Sistema de Gastos GrupLomi
-================================================
+Backend FastAPI para Sistema de Gastos GrupLomi - Versión Vercel
+==================================================================
+IMPORTANTE: Esta versión NO tiene eventos de startup.
+Usa init_db.py externamente para inicializar la base de datos.
 """
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,10 +16,6 @@ from typing import Optional, List
 import jwt
 import bcrypt
 import os
-from dotenv import load_dotenv
-
-# Cargar variables de entorno
-load_dotenv()
 
 # Configuración de la base de datos - ACTUALIZADA CON BASE DE DATOS EXTERNA
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://gruplomi_user:GrupLomi2024#Secure!@185.194.59.40:5432/gruplomi_tickets")
@@ -33,7 +31,7 @@ Base = declarative_base()
 # Inicializar FastAPI
 app = FastAPI(
     title="GrupLomi Gastos API",
-    description="API para gestión de gastos de empresa",
+    description="API para gestión de gastos de empresa - Vercel",
     version="1.0.0"
 )
 
@@ -56,7 +54,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     nombre = Column(String, nullable=False)
     apellidos = Column(String)
-    role = Column(String, default="empleado")  # empleado, supervisor, contabilidad, admin
+    role = Column(String, default="empleado")
     departamento = Column(String)
     telefono = Column(String)
     direccion = Column(String)
@@ -67,7 +65,6 @@ class User(Base):
     activo = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     
-    # Relaciones
     gastos = relationship("Gasto", back_populates="usuario", foreign_keys="Gasto.creado_por")
     gastos_supervisados = relationship("Gasto", back_populates="supervisor", foreign_keys="Gasto.supervisor_asignado")
 
@@ -75,23 +72,22 @@ class Gasto(Base):
     __tablename__ = "gastos"
     
     id = Column(Integer, primary_key=True, index=True)
-    tipo_gasto = Column(String, nullable=False)  # dieta, gasolina, aparcamiento, otros
+    tipo_gasto = Column(String, nullable=False)
     descripcion = Column(Text)
     obra = Column(String)
     importe = Column(Float, nullable=False)
     fecha_gasto = Column(String, nullable=False)
-    estado = Column(String, default="pendiente")  # pendiente, aprobado, rechazado
+    estado = Column(String, default="pendiente")
     creado_por = Column(Integer, ForeignKey("usuarios.id"))
     supervisor_asignado = Column(Integer, ForeignKey("usuarios.id"))
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     fecha_aprobacion = Column(DateTime)
     aprobado_por = Column(Integer)
-    archivos_adjuntos = Column(Text)  # JSON string de archivos
-    kilometros = Column(Float)  # Para gastos de gasolina
-    precio_km = Column(Float)  # Para gastos de gasolina
+    archivos_adjuntos = Column(Text)
+    kilometros = Column(Float)
+    precio_km = Column(Float)
     comentarios = Column(Text)
     
-    # Relaciones
     usuario = relationship("User", back_populates="gastos", foreign_keys=[creado_por])
     supervisor = relationship("User", back_populates="gastos_supervisados", foreign_keys=[supervisor_asignado])
 
@@ -104,8 +100,8 @@ class ConfigSistema(Base):
     descripcion = Column(String)
     fecha_modificacion = Column(DateTime, default=datetime.utcnow)
 
-# Crear tablas
-Base.metadata.create_all(bind=engine)
+# NO crear tablas automáticamente en Vercel
+# Base.metadata.create_all(bind=engine)  # ❌ COMENTADO para Vercel
 
 # ==================== MODELOS PYDANTIC ====================
 
@@ -223,7 +219,11 @@ def check_supervisor(current_user: User = Depends(get_current_user)):
 
 @app.get("/")
 def read_root():
-    return {"message": "API de Gastos GrupLomi v1.0"}
+    return {
+        "message": "API de Gastos GrupLomi v1.0 - Vercel",
+        "status": "online",
+        "version": "1.0.0"
+    }
 
 @app.get("/health")
 def health_check():
@@ -277,12 +277,10 @@ def create_usuario(
     db: Session = Depends(get_db),
     current_user: User = Depends(check_admin)
 ):
-    # Verificar si el email ya existe
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email ya registrado")
     
-    # Crear nuevo usuario
     db_user = User(
         email=user.email,
         password_hash=hash_password(user.password),
@@ -309,7 +307,6 @@ def update_usuario(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
-    # Actualizar campos permitidos
     allowed_fields = ["nombre", "apellidos", "departamento", "telefono", "role", "activo", "supervisor_id"]
     for field, value in updates.items():
         if field in allowed_fields:
@@ -329,7 +326,6 @@ def delete_usuario(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
-    # Soft delete - solo desactivar
     user.activo = False
     db.commit()
     return {"message": "Usuario desactivado correctamente"}
@@ -346,17 +342,13 @@ def get_gastos(
 ):
     query = db.query(Gasto)
     
-    # Filtrar por rol
     if current_user.role == "empleado":
-        # Empleados solo ven sus propios gastos
         query = query.filter(Gasto.creado_por == current_user.id)
     elif current_user.role == "supervisor":
-        # Supervisores ven gastos propios y de sus supervisados
         query = query.filter(
             (Gasto.creado_por == current_user.id) | 
             (Gasto.supervisor_asignado == current_user.id)
         )
-    # Admin y contabilidad ven todos
     
     if estado:
         query = query.filter(Gasto.estado == estado)
@@ -370,7 +362,6 @@ def create_gasto(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Buscar supervisor del usuario
     supervisor_id = current_user.supervisor_id
     
     db_gasto = Gasto(
@@ -401,11 +392,9 @@ def update_gasto(
     if not gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     
-    # Verificar permisos
     if current_user.role == "empleado" and gasto.creado_por != current_user.id:
         raise HTTPException(status_code=403, detail="No tienes permisos para modificar este gasto")
     
-    # Actualizar campos
     if updates.estado and current_user.role in ["supervisor", "admin", "contabilidad"]:
         gasto.estado = updates.estado
         if updates.estado == "aprobado":
@@ -432,11 +421,9 @@ def delete_gasto(
     if not gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     
-    # Solo el creador o admin puede eliminar
     if current_user.role != "admin" and gasto.creado_por != current_user.id:
         raise HTTPException(status_code=403, detail="No tienes permisos para eliminar este gasto")
     
-    # Solo se pueden eliminar gastos pendientes
     if gasto.estado != "pendiente":
         raise HTTPException(status_code=400, detail="Solo se pueden eliminar gastos pendientes")
     
@@ -459,88 +446,5 @@ def get_system_config(db: Session = Depends(get_db)):
     configs = db.query(ConfigSistema).all()
     return {config.clave: config.valor for config in configs}
 
-# === INICIALIZACIÓN ===
-
-def init_db():
-    """Inicializar base de datos con datos por defecto"""
-    db = SessionLocal()
-    
-    # Crear usuario admin si no existe
-    admin = db.query(User).filter(User.email == "admin@gruplomi.com").first()
-    if not admin:
-        admin = User(
-            email="admin@gruplomi.com",
-            password_hash=hash_password("admin123"),
-            nombre="Administrador",
-            apellidos="Sistema",
-            role="admin",
-            departamento="IT"
-        )
-        db.add(admin)
-        
-        # Crear supervisor de prueba
-        supervisor = User(
-            email="supervisor@gruplomi.com",
-            password_hash=hash_password("super123"),
-            nombre="Juan",
-            apellidos="Pérez",
-            role="supervisor",
-            departamento="Operaciones"
-        )
-        db.add(supervisor)
-        
-        # Crear empleado de prueba
-        empleado = User(
-            email="empleado@gruplomi.com",
-            password_hash=hash_password("empleado123"),
-            nombre="María",
-            apellidos="García",
-            role="empleado",
-            departamento="Construcción",
-            supervisor_id=2  # Juan Pérez
-        )
-        db.add(empleado)
-        
-        # Crear contabilidad
-        contable = User(
-            email="contabilidad@gruplomi.com",
-            password_hash=hash_password("conta123"),
-            nombre="Ana",
-            apellidos="Martínez",
-            role="contabilidad",
-            departamento="Finanzas"
-        )
-        db.add(contable)
-        
-        db.commit()
-        print("✅ Usuarios por defecto creados")
-    
-    # Configuración del sistema
-    config_keys = [
-        ("empresa_nombre", "GrupLomi", "Nombre de la empresa"),
-        ("empresa_cif", "B12345678", "CIF de la empresa"),
-        ("limite_dieta", "50", "Límite diario para dietas"),
-        ("limite_gasolina", "100", "Límite diario para gasolina"),
-        ("limite_aparcamiento", "20", "Límite diario para aparcamiento")
-    ]
-    
-    for clave, valor, descripcion in config_keys:
-        config = db.query(ConfigSistema).filter(ConfigSistema.clave == clave).first()
-        if not config:
-            config = ConfigSistema(clave=clave, valor=valor, descripcion=descripcion)
-            db.add(config)
-    
-    db.commit()
-    print("✅ Configuración del sistema inicializada")
-    db.close()
-
-# Inicializar DB al arrancar
-@app.on_event("startup")
-def startup_event():
-    print("🚀 Iniciando servidor...")
-    init_db()
-    print("✅ Servidor listo")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+# Handler para Vercel
+handler = app
