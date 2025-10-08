@@ -446,5 +446,5 @@ def get_system_config(db: Session = Depends(get_db)):
     configs = db.query(ConfigSistema).all()
     return {config.clave: config.valor for config in configs}
 
-# Handler para Vercel
-handler = app
+# NOTA: Vercel detecta FastAPI automáticamente
+# NO usar: handler = app (causa crash)
