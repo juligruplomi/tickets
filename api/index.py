@@ -7,7 +7,7 @@ Usa init_db.py externamente para inicializar la base de datos.
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 from pydantic import BaseModel, Field
@@ -237,7 +237,7 @@ def debug_database():
         db = SessionLocal()
         
         # Intentar hacer una query simple
-        result = db.execute("SELECT 1 as test").fetchone()
+        result = db.execute(text("SELECT 1 as test")).fetchone()
         
         # Intentar contar usuarios
         user_count = db.query(User).count()
