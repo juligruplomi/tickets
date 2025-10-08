@@ -12,3 +12,4 @@ requests==2.31.0
 
 # Utilidades
 pydantic==2.5.0
+email-validator==2.1.0
