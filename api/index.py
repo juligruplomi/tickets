@@ -41,6 +41,11 @@ app.add_middleware(
 def db_query(text: str, params: list = None):
     """Ejecutar query a través del proxy HTTP"""
     try:
+        # Convertir %s a $1, $2, $3... para PostgreSQL
+        if params:
+            for i in range(len(params)):
+                text = text.replace('%s', f'${i+1}', 1)
+        
         response = requests.post(
             f"{PROXY_URL}/query",
             json={"text": text, "params": params or []},
