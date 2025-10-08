@@ -520,8 +520,76 @@ def get_dashboard_stats(current_user = Depends(get_current_user)):
 
 @app.get("/reportes/dashboard")
 def get_dashboard_report(current_user = Depends(get_current_user)):
-    """Reporte completo para el dashboard (alias de stats/dashboard)"""
-    return get_dashboard_stats(current_user)
+    """Reporte completo para el dashboard"""
+    try:
+        # Total de gastos según rol
+        if current_user["role"] == "empleado":
+            where_clause = "WHERE creado_por = %s"
+            params = [current_user["id"]]
+        elif current_user["role"] == "supervisor":
+            where_clause = "WHERE (creado_por = %s OR supervisor_asignado = %s)"
+            params = [current_user["id"], current_user["id"]]
+        else:
+            where_clause = ""
+            params = []
+        
+        # Convertir %s a $1, $2...
+        query_where = where_clause
+        for i in range(len(params)):
+            query_where = query_where.replace('%s', f'${i+1}', 1)
+        
+        # Total de gastos
+        total_query = f"SELECT COUNT(*) as total FROM gastos {query_where}"
+        total_result = db_query(total_query, params)
+        total_gastos = total_result[0]["total"] if total_result else 0
+        
+        # Gastos por estado
+        estados_query = f"SELECT estado, COUNT(*) as count FROM gastos {query_where} GROUP BY estado"
+        estados_result = db_query(estados_query, params)
+        
+        gastos_por_estado = {}
+        for row in estados_result:
+            gastos_por_estado[row["estado"]] = row["count"]
+        
+        # Total importe
+        importe_query = f"SELECT COALESCE(SUM(importe), 0) as total FROM gastos {query_where}"
+        importe_result = db_query(importe_query, params)
+        total_importe = float(importe_result[0]["total"]) if importe_result else 0
+        
+        # Gastos por tipo
+        tipo_query = f"SELECT tipo_gasto, COUNT(*) as count FROM gastos {query_where} GROUP BY tipo_gasto"
+        tipo_result = db_query(tipo_query, params)
+        
+        gastos_por_tipo = {
+            "dietas": 0,
+            "aparcamiento": 0,
+            "gasolina": 0,
+            "otros": 0
+        }
+        
+        for row in tipo_result:
+            tipo = row["tipo_gasto"].lower()
+            if "diet" in tipo or "alimenta" in tipo:
+                gastos_por_tipo["dietas"] += row["count"]
+            elif "aparca" in tipo or "parking" in tipo:
+                gastos_por_tipo["aparcamiento"] += row["count"]
+            elif "gasol" in tipo or "combustible" in tipo:
+                gastos_por_tipo["gasolina"] += row["count"]
+            else:
+                gastos_por_tipo["otros"] += row["count"]
+        
+        return {
+            "total_gastos": total_gastos,
+            "total_importe": total_importe,
+            "pendientes": gastos_por_estado.get("pendiente", 0),
+            "aprobados": gastos_por_estado.get("aprobado", 0),
+            "rechazados": gastos_por_estado.get("rechazado", 0),
+            "pagados": gastos_por_estado.get("pagado", 0),
+            "por_tipo": gastos_por_tipo,
+            "gastos_por_estado": gastos_por_estado
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting dashboard: {str(e)}")
 
 # NOTA: Vercel detecta FastAPI automáticamente
 # NO usar: handler = app (causa crash)
