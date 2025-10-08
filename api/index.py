@@ -1,118 +1,57 @@
 """
-Backend FastAPI para Sistema de Gastos GrupLomi - Versión Vercel
-==================================================================
-IMPORTANTE: Esta versión NO tiene eventos de startup.
-Usa init_db.py externamente para inicializar la base de datos.
+Backend FastAPI para Sistema de Gastos GrupLomi - Versión con Proxy HTTP
+=========================================================================
 """
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, text
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from datetime import datetime, timedelta
 from typing import Optional, List
 import jwt
 import bcrypt
 import os
+import requests
 
-# Configuración de la base de datos - ACTUALIZADA CON BASE DE DATOS EXTERNA
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://gruplomi_user:GrupLomi2024#Secure!@185.194.59.40:5432/gruplomi_tickets")
+# Configuración
+PROXY_URL = os.getenv("PROXY_URL", "http://185.194.59.40:3001")
+PROXY_API_KEY = os.getenv("PROXY_API_KEY", "GrupLomi2024ProxySecureKey_XyZ789")
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "GrupLomi_JWT_Secret_Key_2024_Very_Secure_Hash")
-ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-
-# Configuración SQLAlchemy con timeouts optimizados para Vercel
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    pool_timeout=30,
-    pool_recycle=3600,
-    pool_pre_ping=True,
-    connect_args={
-        'connect_timeout': 10,
-        'options': '-c statement_timeout=30000'
-    }
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
 # Inicializar FastAPI
 app = FastAPI(
     title="GrupLomi Gastos API",
-    description="API para gestión de gastos de empresa - Vercel",
-    version="1.0.0"
+    description="API para gestión de gastos de empresa - Proxy HTTP",
+    version="2.0.0"
 )
 
 # Configuración CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, especificar dominios exactos
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ==================== MODELOS DE BASE DE DATOS ====================
+# ==================== UTILIDADES BD ====================
 
-class User(Base):
-    __tablename__ = "usuarios"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    password_hash = Column(String, nullable=False)
-    nombre = Column(String, nullable=False)
-    apellidos = Column(String)
-    role = Column(String, default="empleado")
-    departamento = Column(String)
-    telefono = Column(String)
-    direccion = Column(String)
-    fecha_nacimiento = Column(String)
-    fecha_contratacion = Column(String)
-    foto_url = Column(String)
-    supervisor_id = Column(Integer, ForeignKey("usuarios.id"))
-    activo = Column(Boolean, default=True)
-    fecha_creacion = Column(DateTime, default=datetime.utcnow)
-    
-    gastos = relationship("Gasto", back_populates="usuario", foreign_keys="Gasto.creado_por")
-    gastos_supervisados = relationship("Gasto", back_populates="supervisor", foreign_keys="Gasto.supervisor_asignado")
-
-class Gasto(Base):
-    __tablename__ = "gastos"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    tipo_gasto = Column(String, nullable=False)
-    descripcion = Column(Text)
-    obra = Column(String)
-    importe = Column(Float, nullable=False)
-    fecha_gasto = Column(String, nullable=False)
-    estado = Column(String, default="pendiente")
-    creado_por = Column(Integer, ForeignKey("usuarios.id"))
-    supervisor_asignado = Column(Integer, ForeignKey("usuarios.id"))
-    fecha_creacion = Column(DateTime, default=datetime.utcnow)
-    fecha_aprobacion = Column(DateTime)
-    aprobado_por = Column(Integer)
-    archivos_adjuntos = Column(Text)
-    kilometros = Column(Float)
-    precio_km = Column(Float)
-    comentarios = Column(Text)
-    
-    usuario = relationship("User", back_populates="gastos", foreign_keys=[creado_por])
-    supervisor = relationship("User", back_populates="gastos_supervisados", foreign_keys=[supervisor_asignado])
-
-class ConfigSistema(Base):
-    __tablename__ = "config_sistema"
-    
-    id = Column(Integer, primary_key=True)
-    clave = Column(String, unique=True, nullable=False)
-    valor = Column(Text)
-    descripcion = Column(String)
-    fecha_modificacion = Column(DateTime, default=datetime.utcnow)
-
-# NO crear tablas automáticamente en Vercel
-# Base.metadata.create_all(bind=engine)  # ❌ COMENTADO para Vercel
+def db_query(text: str, params: list = None):
+    """Ejecutar query a través del proxy HTTP"""
+    try:
+        response = requests.post(
+            f"{PROXY_URL}/query",
+            json={"text": text, "params": params or []},
+            headers={"x-api-key": PROXY_API_KEY},
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("rows", [])
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # ==================== MODELOS PYDANTIC ====================
 
@@ -139,9 +78,6 @@ class UserResponse(BaseModel):
     departamento: Optional[str]
     telefono: Optional[str]
     activo: bool
-    
-    class Config:
-        from_attributes = True
 
 class GastoCreate(BaseModel):
     tipo_gasto: str
@@ -172,20 +108,10 @@ class GastoResponse(BaseModel):
     kilometros: Optional[float]
     precio_km: Optional[float]
     comentarios: Optional[str]
-    
-    class Config:
-        from_attributes = True
 
-# ==================== UTILIDADES ====================
+# ==================== UTILIDADES AUTH ====================
 
 security = HTTPBearer()
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -210,20 +136,15 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Token inválido")
 
-def get_current_user(db: Session = Depends(get_db), token_data = Depends(verify_token)):
-    user = db.query(User).filter(User.id == token_data["user_id"]).first()
-    if not user:
+def get_current_user(token_data = Depends(verify_token)):
+    rows = db_query("SELECT * FROM usuarios WHERE id = %s", [token_data["user_id"]])
+    if not rows:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return user
+    return rows[0]
 
-def check_admin(current_user: User = Depends(get_current_user)):
-    if current_user.role != "admin":
+def check_admin(current_user = Depends(get_current_user)):
+    if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="No tienes permisos de administrador")
-    return current_user
-
-def check_supervisor(current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "supervisor"]:
-        raise HTTPException(status_code=403, detail="No tienes permisos de supervisor")
     return current_user
 
 # ==================== ENDPOINTS ====================
@@ -231,9 +152,9 @@ def check_supervisor(current_user: User = Depends(get_current_user)):
 @app.get("/")
 def read_root():
     return {
-        "message": "API de Gastos GrupLomi v1.0 - Vercel",
+        "message": "API de Gastos GrupLomi v2.0 - Proxy HTTP",
         "status": "online",
-        "version": "1.0.0"
+        "version": "2.0.0"
     }
 
 @app.get("/health")
@@ -242,143 +163,97 @@ def health_check():
 
 @app.get("/debug/db")
 def debug_database():
-    """Endpoint de diagnóstico para verificar la conexión a la base de datos"""
+    """Endpoint de diagnóstico"""
     try:
-        # Intentar conectar
-        db = SessionLocal()
-        
-        # Intentar hacer una query simple
-        result = db.execute(text("SELECT 1 as test")).fetchone()
-        
-        # Intentar contar usuarios
-        user_count = db.query(User).count()
-        
-        db.close()
-        
+        rows = db_query("SELECT COUNT(*) as count FROM usuarios")
         return {
             "status": "success",
-            "database_url": DATABASE_URL.replace(DATABASE_URL.split('@')[0].split('://')[1], "***"),  # Ocultar credenciales
+            "proxy_url": PROXY_URL,
             "connection": "OK",
-            "test_query": "OK",
-            "users_count": user_count
+            "users_count": rows[0]["count"]
         }
     except Exception as e:
         return {
             "status": "error",
             "error": str(e),
-            "error_type": type(e).__name__,
-            "database_url": DATABASE_URL.replace(DATABASE_URL.split('@')[0].split('://')[1], "***")
+            "proxy_url": PROXY_URL
         }
 
 # === AUTENTICACIÓN ===
 
 @app.post("/auth/login")
-def login(user_login: UserLogin, db: Session = Depends(get_db)):
+def login(user_login: UserLogin):
     try:
-        user = db.query(User).filter(User.email == user_login.email).first()
-        if not user:
+        rows = db_query("SELECT * FROM usuarios WHERE email = %s", [user_login.email])
+        
+        if not rows:
             raise HTTPException(status_code=401, detail="Credenciales incorrectas")
         
-        if not verify_password(user_login.password, user.password_hash):
+        user = rows[0]
+        
+        if not verify_password(user_login.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Credenciales incorrectas")
         
-        if not user.activo:
+        if not user["activo"]:
             raise HTTPException(status_code=401, detail="Usuario desactivado")
         
-        access_token = create_access_token({"user_id": user.id, "email": user.email, "role": user.role})
+        access_token = create_access_token({
+            "user_id": user["id"],
+            "email": user["email"],
+            "role": user["role"]
+        })
         
         return {
             "access_token": access_token,
             "token_type": "bearer",
             "user": {
-                "id": user.id,
-                "email": user.email,
-                "nombre": user.nombre,
-                "apellidos": user.apellidos,
-                "role": user.role,
-                "departamento": user.departamento
+                "id": user["id"],
+                "email": user["email"],
+                "nombre": user["nombre"],
+                "apellidos": user.get("apellidos"),
+                "role": user["role"],
+                "departamento": user.get("departamento")
             }
         }
     except HTTPException:
         raise
     except Exception as e:
-        # Log del error para debugging
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 @app.get("/auth/me")
-def get_me(current_user: User = Depends(get_current_user)):
-    return UserResponse.from_orm(current_user)
+def get_me(current_user = Depends(get_current_user)):
+    return UserResponse(**current_user)
 
 # === USUARIOS ===
 
 @app.get("/usuarios", response_model=List[UserResponse])
 def get_usuarios(
-    skip: int = 0, 
+    skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(check_admin)
+    current_user = Depends(check_admin)
 ):
-    usuarios = db.query(User).offset(skip).limit(limit).all()
-    return usuarios
+    rows = db_query("SELECT * FROM usuarios LIMIT %s OFFSET %s", [limit, skip])
+    return [UserResponse(**row) for row in rows]
 
 @app.post("/usuarios", response_model=UserResponse)
 def create_usuario(
     user: UserCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(check_admin)
+    current_user = Depends(check_admin)
 ):
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
+    # Verificar si existe
+    existing = db_query("SELECT id FROM usuarios WHERE email = %s", [user.email])
+    if existing:
         raise HTTPException(status_code=400, detail="Email ya registrado")
     
-    db_user = User(
-        email=user.email,
-        password_hash=hash_password(user.password),
-        nombre=user.nombre,
-        apellidos=user.apellidos,
-        role=user.role,
-        departamento=user.departamento,
-        telefono=user.telefono,
-        supervisor_id=user.supervisor_id
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
-
-@app.put("/usuarios/{user_id}")
-def update_usuario(
-    user_id: int,
-    updates: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(check_admin)
-):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    # Crear usuario
+    password_hash = hash_password(user.password)
+    rows = db_query("""
+        INSERT INTO usuarios (email, password_hash, nombre, apellidos, role, departamento, telefono, activo)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, true)
+        RETURNING *
+    """, [user.email, password_hash, user.nombre, user.apellidos, user.role, user.departamento, user.telefono])
     
-    allowed_fields = ["nombre", "apellidos", "departamento", "telefono", "role", "activo", "supervisor_id"]
-    for field, value in updates.items():
-        if field in allowed_fields:
-            setattr(user, field, value)
-    
-    db.commit()
-    db.refresh(user)
-    return UserResponse.from_orm(current_user)
-
-@app.delete("/usuarios/{user_id}")
-def delete_usuario(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(check_admin)
-):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    user.activo = False
-    db.commit()
-    return {"message": "Usuario desactivado correctamente"}
+    return UserResponse(**rows[0])
 
 # === GASTOS ===
 
@@ -387,114 +262,137 @@ def get_gastos(
     skip: int = 0,
     limit: int = 100,
     estado: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
-    query = db.query(Gasto)
+    # Construir query según rol
+    if current_user["role"] == "empleado":
+        where_clause = "WHERE creado_por = %s"
+        params = [current_user["id"]]
+    elif current_user["role"] == "supervisor":
+        where_clause = "WHERE (creado_por = %s OR supervisor_asignado = %s)"
+        params = [current_user["id"], current_user["id"]]
+    else:
+        where_clause = ""
+        params = []
     
-    if current_user.role == "empleado":
-        query = query.filter(Gasto.creado_por == current_user.id)
-    elif current_user.role == "supervisor":
-        query = query.filter(
-            (Gasto.creado_por == current_user.id) | 
-            (Gasto.supervisor_asignado == current_user.id)
-        )
-    
+    # Añadir filtro de estado
     if estado:
-        query = query.filter(Gasto.estado == estado)
+        if where_clause:
+            where_clause += " AND estado = %s"
+        else:
+            where_clause = "WHERE estado = %s"
+        params.append(estado)
     
-    gastos = query.offset(skip).limit(limit).all()
-    return gastos
+    # Añadir limit y offset
+    params.extend([limit, skip])
+    
+    query = f"SELECT * FROM gastos {where_clause} ORDER BY fecha_creacion DESC LIMIT %s OFFSET %s"
+    rows = db_query(query, params)
+    
+    return [GastoResponse(**row) for row in rows]
 
 @app.post("/gastos", response_model=GastoResponse)
 def create_gasto(
     gasto: GastoCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
-    supervisor_id = current_user.supervisor_id
+    # Obtener supervisor del usuario
+    user_data = db_query("SELECT supervisor_id FROM usuarios WHERE id = %s", [current_user["id"]])
+    supervisor_id = user_data[0].get("supervisor_id") if user_data else None
     
-    db_gasto = Gasto(
-        tipo_gasto=gasto.tipo_gasto,
-        descripcion=gasto.descripcion,
-        obra=gasto.obra,
-        importe=gasto.importe,
-        fecha_gasto=gasto.fecha_gasto,
-        creado_por=current_user.id,
-        supervisor_asignado=supervisor_id,
-        kilometros=gasto.kilometros,
-        precio_km=gasto.precio_km,
-        archivos_adjuntos=gasto.archivos_adjuntos
-    )
-    db.add(db_gasto)
-    db.commit()
-    db.refresh(db_gasto)
-    return db_gasto
+    # Crear gasto
+    rows = db_query("""
+        INSERT INTO gastos (
+            tipo_gasto, descripcion, obra, importe, fecha_gasto,
+            creado_por, supervisor_asignado, kilometros, precio_km, archivos_adjuntos
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING *
+    """, [
+        gasto.tipo_gasto, gasto.descripcion, gasto.obra, gasto.importe, gasto.fecha_gasto,
+        current_user["id"], supervisor_id, gasto.kilometros, gasto.precio_km, gasto.archivos_adjuntos
+    ])
+    
+    return GastoResponse(**rows[0])
 
 @app.put("/gastos/{gasto_id}")
 def update_gasto(
     gasto_id: int,
     updates: GastoUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
-    gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
-    if not gasto:
+    # Verificar que existe
+    gasto_rows = db_query("SELECT * FROM gastos WHERE id = %s", [gasto_id])
+    if not gasto_rows:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     
-    if current_user.role == "empleado" and gasto.creado_por != current_user.id:
-        raise HTTPException(status_code=403, detail="No tienes permisos para modificar este gasto")
+    gasto = gasto_rows[0]
     
-    if updates.estado and current_user.role in ["supervisor", "admin", "contabilidad"]:
-        gasto.estado = updates.estado
+    # Verificar permisos
+    if current_user["role"] == "empleado" and gasto["creado_por"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="No tienes permisos")
+    
+    # Construir UPDATE
+    set_parts = []
+    params = []
+    
+    if updates.estado and current_user["role"] in ["supervisor", "admin", "contabilidad"]:
+        set_parts.append("estado = %s")
+        params.append(updates.estado)
+        
         if updates.estado == "aprobado":
-            gasto.fecha_aprobacion = datetime.utcnow()
-            gasto.aprobado_por = current_user.id
+            set_parts.append("fecha_aprobacion = CURRENT_TIMESTAMP")
+            set_parts.append("aprobado_por = %s")
+            params.append(current_user["id"])
     
     if updates.comentarios:
-        gasto.comentarios = updates.comentarios
+        set_parts.append("comentarios = %s")
+        params.append(updates.comentarios)
     
-    if updates.supervisor_asignado and current_user.role == "admin":
-        gasto.supervisor_asignado = updates.supervisor_asignado
+    if updates.supervisor_asignado and current_user["role"] == "admin":
+        set_parts.append("supervisor_asignado = %s")
+        params.append(updates.supervisor_asignado)
     
-    db.commit()
-    db.refresh(gasto)
-    return GastoResponse.from_orm(gasto)
+    if not set_parts:
+        return GastoResponse(**gasto)
+    
+    params.append(gasto_id)
+    query = f"UPDATE gastos SET {', '.join(set_parts)} WHERE id = %s RETURNING *"
+    
+    rows = db_query(query, params)
+    return GastoResponse(**rows[0])
 
 @app.delete("/gastos/{gasto_id}")
 def delete_gasto(
     gasto_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
-    gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
-    if not gasto:
+    # Verificar que existe
+    gasto_rows = db_query("SELECT * FROM gastos WHERE id = %s", [gasto_id])
+    if not gasto_rows:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     
-    if current_user.role != "admin" and gasto.creado_por != current_user.id:
-        raise HTTPException(status_code=403, detail="No tienes permisos para eliminar este gasto")
+    gasto = gasto_rows[0]
     
-    if gasto.estado != "pendiente":
+    # Verificar permisos
+    if current_user["role"] != "admin" and gasto["creado_por"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="No tienes permisos")
+    
+    if gasto["estado"] != "pendiente":
         raise HTTPException(status_code=400, detail="Solo se pueden eliminar gastos pendientes")
     
-    db.delete(gasto)
-    db.commit()
+    db_query("DELETE FROM gastos WHERE id = %s", [gasto_id])
     return {"message": "Gasto eliminado correctamente"}
 
 # === CONFIGURACIÓN ===
 
-@app.get("/config/admin")
-def get_admin_config(current_user: User = Depends(check_admin)):
-    return {
-        "message": "Configuración de administrador",
-        "user_role": current_user.role,
-        "permissions": ["all"]
-    }
-
 @app.get("/config/sistema")
-def get_system_config(db: Session = Depends(get_db)):
-    configs = db.query(ConfigSistema).all()
-    return {config.clave: config.valor for config in configs}
+def get_system_config():
+    return {
+        "empresa_nombre": "GrupLomi",
+        "version": "2.0.0",
+        "proxy_enabled": True
+    }
 
 # NOTA: Vercel detecta FastAPI automáticamente
 # NO usar: handler = app (causa crash)
