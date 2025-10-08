@@ -400,36 +400,63 @@ def delete_gasto(
 @app.get("/config")
 def get_config():
     """Configuración pública (sin autenticación)"""
-    config_data = {
-        "empresa_nombre": "GrupLomi",
+    return {
+        "empresa": {
+            "nombre": "GrupLomi",
+            "logo_url": None,
+            "colores": {
+                "primario": "#1976d2",
+                "secundario": "#dc004e",
+                "acento": "#28a745"
+            }
+        },
+        "gastos": {
+            "tipos_gasto": [
+                {"id": "transporte", "nombre": "Transporte", "icon": "🚗"},
+                {"id": "alimentacion", "nombre": "Alimentación", "icon": "🍽️"},
+                {"id": "hospedaje", "nombre": "Hospedaje", "icon": "🏨"},
+                {"id": "material", "nombre": "Material", "icon": "💼"},
+                {"id": "combustible", "nombre": "Combustible", "icon": "⛽"},
+                {"id": "kilometros", "nombre": "Kilómetros", "icon": "📍"},
+                {"id": "otro", "nombre": "Otro", "icon": "📎"}
+            ],
+            "estados": [
+                {"id": "pendiente", "nombre": "Pendiente", "color": "#ffc107"},
+                {"id": "aprobado", "nombre": "Aprobado", "color": "#28a745"},
+                {"id": "rechazado", "nombre": "Rechazado", "color": "#dc3545"},
+                {"id": "pagado", "nombre": "Pagado", "color": "#0066CC"}
+            ]
+        },
+        "idioma": {
+            "actual": "es",
+            "disponibles": ["es", "en"],
+            "traducciones": {
+                "gastos": "Gastos",
+                "nuevo_gasto": "Nuevo Gasto",
+                "mis_gastos": "Mis Gastos",
+                "dashboard": "Panel de Control",
+                "usuarios": "Usuarios",
+                "configuracion": "Configuración",
+                "cerrar_sesion": "Cerrar Sesión",
+                "hola": "Hola",
+                "bienvenida": "Bienvenido al sistema de gastos",
+                "footer": "© 2025 - Sistema de gestión de gastos"
+            }
+        },
+        "apariencia": {
+            "modo_oscuro": False,
+            "tema": "default"
+        },
         "version": "2.0.0",
-        "logo_url": None,
         "permite_registro": False,
-        "modo_oscuro": False,
-        "color_primario": "#1976d2",
-        "color_secundario": "#dc004e",
         "moneda": "EUR",
         "precio_km_default": 0.19,
-        "tipos_gasto": [
-            "Transporte",
-            "Alimentación",
-            "Hospedaje",
-            "Material",
-            "Combustible",
-            "Kilómetros",
-            "Otro"
-        ],
         "roles": [
             {"value": "empleado", "label": "Empleado"},
             {"value": "supervisor", "label": "Supervisor"},
             {"value": "contabilidad", "label": "Contabilidad"},
             {"value": "admin", "label": "Administrador"}
         ]
-    }
-    # Devolver en ambos formatos para compatibilidad
-    return {
-        **config_data,  # Campos directamente
-        "config": config_data  # También anidado
     }
 
 @app.get("/config/sistema")
