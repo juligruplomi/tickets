@@ -399,6 +399,11 @@ def get_config():
         "version": "2.0.0",
         "logo_url": None,
         "permite_registro": False,
+        "modo_oscuro": False,
+        "color_primario": "#1976d2",
+        "color_secundario": "#dc004e",
+        "moneda": "EUR",
+        "precio_km_default": 0.19,
         "tipos_gasto": [
             "Transporte",
             "Alimentación",
@@ -407,6 +412,12 @@ def get_config():
             "Combustible",
             "Kilómetros",
             "Otro"
+        ],
+        "roles": [
+            {"value": "empleado", "label": "Empleado"},
+            {"value": "supervisor", "label": "Supervisor"},
+            {"value": "contabilidad", "label": "Contabilidad"},
+            {"value": "admin", "label": "Administrador"}
         ]
     }
 
