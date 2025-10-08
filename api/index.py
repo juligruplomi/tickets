@@ -518,5 +518,10 @@ def get_dashboard_stats(current_user = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
+@app.get("/reportes/dashboard")
+def get_dashboard_report(current_user = Depends(get_current_user)):
+    """Reporte completo para el dashboard (alias de stats/dashboard)"""
+    return get_dashboard_stats(current_user)
+
 # NOTA: Vercel detecta FastAPI automáticamente
 # NO usar: handler = app (causa crash)
