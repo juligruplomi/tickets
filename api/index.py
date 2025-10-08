@@ -391,6 +391,25 @@ def delete_gasto(
 
 # === CONFIGURACIÓN ===
 
+@app.get("/config")
+def get_config():
+    """Configuración pública (sin autenticación)"""
+    return {
+        "empresa_nombre": "GrupLomi",
+        "version": "2.0.0",
+        "logo_url": None,
+        "permite_registro": False,
+        "tipos_gasto": [
+            "Transporte",
+            "Alimentación",
+            "Hospedaje",
+            "Material",
+            "Combustible",
+            "Kilómetros",
+            "Otro"
+        ]
+    }
+
 @app.get("/config/sistema")
 def get_system_config():
     return {
