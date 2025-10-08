@@ -34,5 +34,5 @@ def health():
         }
     }
 
-# Handler para Vercel
-handler = app
+# NO USAR: handler = app
+# Vercel detecta FastAPI automáticamente
