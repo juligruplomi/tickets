@@ -1,107 +1,147 @@
-"""
-Backend FastAPI para Sistema de Gastos GrupLomi - Versión Completa con Proxy HTTP
-==================================================================================
-"""
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, status, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, func
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session, relationship
 from pydantic import BaseModel, EmailStr
-from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta
+from passlib.context import CryptContext
 import jwt
-import bcrypt
 import os
-import requests
-import io
-import csv
+from dotenv import load_dotenv
+import json
 
-# Configuración
-PROXY_URL = os.getenv("PROXY_URL", "http://185.194.59.40:3001")
-PROXY_API_KEY = os.getenv("PROXY_API_KEY", "GrupLomi2024ProxySecureKey_XyZ789")
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "GrupLomi_JWT_Secret_Key_2024_Very_Secure_Hash")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+# Cargar variables de entorno
+load_dotenv()
 
-# Inicializar FastAPI
-app = FastAPI(
-    title="GrupLomi Gastos API",
-    description="API completa para gestión de gastos de empresa",
-    version="3.0.0"
-)
+# Configuración de la aplicación
+app = FastAPI(title="GrupLomi Tickets API", version="2.0")
 
 # Configuración CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://tickets.gruplomi.com",
-        "https://tickets-frontend-git-main-juligruplomis-projects.vercel.app",
-        "https://tickets-frontend-hwbjgiiwx-juligruplomis-projects.vercel.app",
-        "http://localhost:3000",
-        "*"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ==================== UTILIDADES BD ====================
+# Configuración de Base de Datos
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://gruplomi_user:GrupLomi2024#Secure!@185.194.59.40:5432/gruplomi_tickets")
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-def db_query(text: str, params: list = None):
-    """Ejecutar query a través del proxy HTTP"""
-    try:
-        # Convertir %s a $1, $2, $3... para PostgreSQL
-        if params:
-            for i in range(len(params)):
-                text = text.replace('%s', f'${i+1}', 1)
-        
-        response = requests.post(
-            f"{PROXY_URL}/query",
-            json={"text": text, "params": params or []},
-            headers={"x-api-key": PROXY_API_KEY},
-            timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data.get("rows", [])
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+# Configuración JWT
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "GrupLomi_JWT_Secret_Key_2024_Very_Secure_Hash")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# ==================== MODELOS PYDANTIC ====================
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-class UserLogin(BaseModel):
-    email: EmailStr
+# ==================== MODELOS DE BASE DE DATOS ====================
+
+class User(Base):
+    __tablename__ = "usuarios"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    nombre = Column(String(100))
+    apellidos = Column(String(100))
+    codigo_empleado = Column(String(50))
+    telefono = Column(String(50))
+    direccion = Column(Text)
+    fecha_nacimiento = Column(String(50))
+    fecha_contratacion = Column(String(50))
+    foto_url = Column(String(255))
+    role = Column(String(50), default="usuario")
+    departamento = Column(String(100))
+    supervisor_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    activo = Column(Boolean, default=True)
+    idioma_preferido = Column(String(10), default="es")
+    permisos_especiales = Column(Text, default="[]")
+    fecha_creacion = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    gastos = relationship("Gasto", back_populates="usuario", foreign_keys="Gasto.creado_por")
+    supervisor = relationship("User", remote_side=[id])
+
+class Gasto(Base):
+    __tablename__ = "gastos"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tipo_gasto = Column(String(50), nullable=False)
+    descripcion = Column(Text)
+    obra = Column(String(255))
+    importe = Column(Float, nullable=False)
+    fecha_gasto = Column(String(50))
+    estado = Column(String(50), default="pendiente")
+    creado_por = Column(Integer, ForeignKey("usuarios.id"))
+    supervisor_asignado = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    fecha_creacion = Column(DateTime, default=datetime.utcnow)
+    archivos_adjuntos = Column(Text, default="[]")
+    fecha_aprobacion = Column(DateTime, nullable=True)
+    aprobado_por = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
+    kilometros = Column(Float, nullable=True)
+    precio_km = Column(Float, nullable=True)
+    comentarios = Column(Text)
+    
+    usuario = relationship("User", back_populates="gastos", foreign_keys=[creado_por])
+    supervisor = relationship("User", foreign_keys=[supervisor_asignado])
+    aprobador = relationship("User", foreign_keys=[aprobado_por])
+
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, index=True, nullable=False)
+    value = Column(Text, nullable=False)
+    description = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Role(Base):
+    __tablename__ = "roles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), unique=True, nullable=False)
+    permissions = Column(Text, default="[]")
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+# Crear las tablas
+Base.metadata.create_all(bind=engine)
+
+# ==================== PYDANTIC SCHEMAS ====================
+
+class LoginRequest(BaseModel):
+    username: str
     password: str
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
     nombre: str
-    apellidos: Optional[str] = None
-    role: str = "empleado"
-    departamento: Optional[str] = None
+    apellidos: str
+    codigo_empleado: Optional[str] = None
     telefono: Optional[str] = None
-    activo: bool = True
+    direccion: Optional[str] = None
+    role: str = "usuario"
+    departamento: Optional[str] = None
+    supervisor_id: Optional[int] = None
 
 class UserUpdate(BaseModel):
     nombre: Optional[str] = None
     apellidos: Optional[str] = None
-    role: Optional[str] = None
-    departamento: Optional[str] = None
     telefono: Optional[str] = None
+    direccion: Optional[str] = None
+    departamento: Optional[str] = None
+    supervisor_id: Optional[int] = None
     activo: Optional[bool] = None
-    password: Optional[str] = None
-
-class UserResponse(BaseModel):
-    id: int
-    email: str
-    nombre: str
-    apellidos: Optional[str]
-    role: str
-    departamento: Optional[str]
-    telefono: Optional[str]
-    activo: bool
-    fecha_creacion: datetime
+    idioma_preferido: Optional[str] = None
 
 class GastoCreate(BaseModel):
     tipo_gasto: str
@@ -111,76 +151,33 @@ class GastoCreate(BaseModel):
     fecha_gasto: str
     kilometros: Optional[float] = None
     precio_km: Optional[float] = None
+    comentarios: Optional[str] = None
 
 class GastoUpdate(BaseModel):
-    tipo_gasto: Optional[str] = None
-    descripcion: Optional[str] = None
-    obra: Optional[str] = None
-    importe: Optional[float] = None
-    fecha_gasto: Optional[str] = None
     estado: Optional[str] = None
-    comentarios: Optional[str] = None
     supervisor_asignado: Optional[int] = None
-    kilometros: Optional[float] = None
-    precio_km: Optional[float] = None
+    comentarios: Optional[str] = None
 
-class GastoResponse(BaseModel):
-    id: int
-    tipo_gasto: str
-    descripcion: str
-    obra: Optional[str]
-    importe: float
-    fecha_gasto: str
-    estado: str
-    creado_por: int
-    supervisor_asignado: Optional[int]
-    fecha_creacion: datetime
-    kilometros: Optional[float]
-    precio_km: Optional[float]
-    comentarios: Optional[str]
+class ConfigUpdate(BaseModel):
+    empresa: Optional[Dict[str, Any]] = None
+    gastos: Optional[Dict[str, Any]] = None
+    idioma: Optional[Dict[str, Any]] = None
+    notificaciones: Optional[Dict[str, Any]] = None
 
-class ConfigGastos(BaseModel):
-    categorias: List[str]
-    limite_aprobacion_supervisor: float
-    requiere_justificante: bool
-    campos_obligatorios: List[str]
+# ==================== FUNCIONES AUXILIARES ====================
 
-class ConfigNotificaciones(BaseModel):
-    email_enabled: bool
-    notificar_nuevo_gasto: bool
-    notificar_aprobacion: bool
-    notificar_rechazo: bool
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-class ConfigSMTP(BaseModel):
-    smtp_host: str
-    smtp_port: int
-    smtp_user: str
-    smtp_password: str
-    smtp_from: str
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
 
-class RolePermissions(BaseModel):
-    ver_gastos: bool
-    crear_gastos: bool
-    editar_gastos: bool
-    eliminar_gastos: bool
-    aprobar_gastos: bool
-    ver_usuarios: bool
-    crear_usuarios: bool
-    editar_usuarios: bool
-    eliminar_usuarios: bool
-    ver_reportes: bool
-    exportar_datos: bool
-    configurar_sistema: bool
-
-# ==================== UTILIDADES AUTH ====================
-
-security = HTTPBearer()
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+def get_password_hash(password):
+    return pwd_context.hash(password)
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -189,8 +186,7 @@ def create_access_token(data: dict):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
+def verify_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
@@ -199,857 +195,474 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Token inválido")
 
-def get_current_user(token_data = Depends(verify_token)):
-    rows = db_query("SELECT * FROM usuarios WHERE id = %s", [token_data["user_id"]])
-    if not rows:
+def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token no proporcionado")
+    
+    token = authorization.split(" ")[1]
+    payload = verify_token(token)
+    
+    user = db.query(User).filter(User.id == payload.get("user_id")).first()
+    if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return rows[0]
+    
+    return user
 
-def check_admin(current_user = Depends(get_current_user)):
-    if current_user["role"] not in ["admin", "administrador"]:
-        raise HTTPException(status_code=403, detail="Requiere permisos de administrador")
-    return current_user
+def init_default_config(db: Session):
+    """Inicializar configuración por defecto si no existe"""
+    
+    default_configs = {
+        "empresa": json.dumps({
+            "nombre": "GrupLomi",
+            "logo_url": "/logo.png",
+            "cif": "B12345678",
+            "direccion": "Calle Empresa 123, Barcelona",
+            "colores": {
+                "primario": "#0066CC",
+                "secundario": "#f8f9fa",
+                "acento": "#28a745"
+            }
+        }),
+        "gastos": json.dumps({
+            "categorias": [
+                {"id": "dietas", "nombre": "Dietas", "icon": "🍽️", "limite": 50},
+                {"id": "combustible", "nombre": "Combustible", "icon": "⛽", "limite": 100},
+                {"id": "aparcamiento", "nombre": "Aparcamiento", "icon": "🅿️", "limite": 20},
+                {"id": "alojamiento", "nombre": "Alojamiento", "icon": "🏨", "limite": 150},
+                {"id": "transporte", "nombre": "Transporte", "icon": "🚗", "limite": 80},
+                {"id": "material", "nombre": "Material", "icon": "📝", "limite": 200},
+                {"id": "formacion", "nombre": "Formación", "icon": "📚", "limite": 300},
+                {"id": "otros", "nombre": "Otros", "icon": "📋", "limite": 100}
+            ],
+            "metodos_pago": ["Efectivo", "Tarjeta empresa", "Pago propio", "Transferencia"],
+            "estados": ["pendiente", "aprobado", "rechazado", "pagado"]
+        }),
+        "idioma": json.dumps({
+            "predeterminado": "es",
+            "disponibles": ["es", "en", "ca", "de", "it", "pt"]
+        }),
+        "notificaciones": json.dumps({
+            "email_habilitado": True,
+            "smtp_server": "smtp.gmail.com",
+            "smtp_port": 587,
+            "smtp_user": "",
+            "smtp_password": "",
+            "eventos": {
+                "gasto_creado": True,
+                "gasto_aprobado": True,
+                "gasto_rechazado": True,
+                "recordatorio_pendientes": True,
+                "limite_excedido": True,
+                "cierre_mensual": True
+            }
+        })
+    }
+    
+    for key, value in default_configs.items():
+        config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+        if not config:
+            config = SystemConfig(key=key, value=value)
+            db.add(config)
+    
+    db.commit()
 
-def check_supervisor_or_admin(current_user = Depends(get_current_user)):
-    if current_user["role"] not in ["admin", "administrador", "supervisor"]:
-        raise HTTPException(status_code=403, detail="Requiere permisos de supervisor o administrador")
-    return current_user
+def init_default_roles(db: Session):
+    """Crear roles por defecto"""
+    default_roles = [
+        {"name": "admin", "permissions": json.dumps(["all"]), "description": "Administrador del sistema"},
+        {"name": "supervisor", "permissions": json.dumps(["view_all", "approve", "reports"]), "description": "Supervisor"},
+        {"name": "usuario", "permissions": json.dumps(["create", "view_own"]), "description": "Usuario estándar"},
+        {"name": "contabilidad", "permissions": json.dumps(["view_all", "reports", "export"]), "description": "Contabilidad"}
+    ]
+    
+    for role_data in default_roles:
+        role = db.query(Role).filter(Role.name == role_data["name"]).first()
+        if not role:
+            role = Role(**role_data)
+            db.add(role)
+    
+    db.commit()
 
-# ==================== ENDPOINTS BÁSICOS ====================
+def create_default_admin(db: Session):
+    """Crear usuario administrador por defecto"""
+    admin = db.query(User).filter(User.email == "admin@gruplomi.com").first()
+    if not admin:
+        admin = User(
+            email="admin@gruplomi.com",
+            password_hash=get_password_hash("AdminGrupLomi2025"),
+            nombre="Admin",
+            apellidos="GrupLomi",
+            codigo_empleado="ADM001",
+            role="admin",
+            activo=True,
+            idioma_preferido="es"
+        )
+        db.add(admin)
+        db.commit()
+        print("✅ Usuario admin creado: admin@gruplomi.com / AdminGrupLomi2025")
+
+# ==================== INICIALIZACIÓN ====================
+
+@app.on_event("startup")
+async def startup_event():
+    """Inicializar datos por defecto al arrancar"""
+    db = SessionLocal()
+    try:
+        init_default_roles(db)
+        init_default_config(db)
+        create_default_admin(db)
+        print("✅ Sistema inicializado correctamente")
+    except Exception as e:
+        print(f"⚠️ Error en inicialización: {e}")
+    finally:
+        db.close()
+
+# ==================== ENDPOINTS ====================
 
 @app.get("/")
-def read_root():
+async def root():
     return {
-        "message": "API de Gastos GrupLomi v3.0 - Sistema Completo",
-        "status": "online",
-        "version": "3.0.0",
-        "features": [
-            "Gestión completa de usuarios",
-            "Sistema de roles y permisos",
-            "Gestión avanzada de gastos",
-            "Reportes y exportación",
-            "Configuración del sistema",
-            "Notificaciones por email"
-        ]
+        "status": "working",
+        "message": "🏢 GrupLomi - Sistema de Gestión de Gastos - v2.0",
+        "api": "FastAPI + PostgreSQL",
+        "database": "Connected to PostgreSQL"
     }
 
 @app.get("/health")
-def health_check():
-    return {"status": "healthy", "timestamp": datetime.utcnow()}
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
-@app.get("/debug/db")
-def debug_database():
-    """Endpoint de diagnóstico"""
-    try:
-        rows = db_query("SELECT COUNT(*) as count FROM usuarios")
-        return {
-            "status": "success",
-            "proxy_url": PROXY_URL,
-            "connection": "OK",
-            "users_count": rows[0]["count"]
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "proxy_url": PROXY_URL
-        }
-
-# ==================== AUTENTICACIÓN ====================
-
+# AUTH ENDPOINTS
 @app.post("/auth/login")
-def login(user_login: UserLogin):
-    try:
-        rows = db_query("SELECT * FROM usuarios WHERE email = %s", [user_login.email])
-        
-        if not rows:
-            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-        
-        user = rows[0]
-        
-        if not verify_password(user_login.password, user["password_hash"]):
-            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-        
-        if not user["activo"]:
-            raise HTTPException(status_code=401, detail="Usuario desactivado")
-        
-        access_token = create_access_token({
-            "user_id": user["id"],
-            "email": user["email"],
-            "role": user["role"]
-        })
-        
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user["id"],
-                "email": user["email"],
-                "nombre": user["nombre"],
-                "apellidos": user.get("apellidos"),
-                "role": user["role"],
-                "departamento": user.get("departamento")
-            }
+async def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == request.username).first()
+    
+    if not user or not verify_password(request.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    
+    if not user.activo:
+        raise HTTPException(status_code=403, detail="Usuario desactivado")
+    
+    access_token = create_access_token(data={"user_id": user.id, "email": user.email, "role": user.role})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "nombre": user.nombre,
+            "apellidos": user.apellidos,
+            "role": user.role,
+            "departamento": user.departamento,
+            "idioma_preferido": user.idioma_preferido
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+    }
 
 @app.get("/auth/me")
-def get_me(current_user = Depends(get_current_user)):
-    return UserResponse(**current_user)
+async def get_me(authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    return {
+        "id": user.id,
+        "email": user.email,
+        "nombre": user.nombre,
+        "apellidos": user.apellidos,
+        "role": user.role,
+        "departamento": user.departamento,
+        "idioma_preferido": user.idioma_preferido,
+        "activo": user.activo
+    }
 
-# ==================== USUARIOS ====================
+# GASTOS ENDPOINTS
+@app.get("/gastos")
+async def get_gastos(authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    
+    if user.role == "admin" or user.role == "contabilidad":
+        gastos = db.query(Gasto).all()
+    elif user.role == "supervisor":
+        gastos = db.query(Gasto).filter(
+            (Gasto.creado_por == user.id) | (Gasto.supervisor_asignado == user.id)
+        ).all()
+    else:
+        gastos = db.query(Gasto).filter(Gasto.creado_por == user.id).all()
+    
+    return gastos
 
-@app.get("/usuarios", response_model=List[UserResponse])
-def get_usuarios(
-    skip: int = 0,
-    limit: int = 100,
-    role: Optional[str] = None,
-    activo: Optional[bool] = None,
-    current_user = Depends(check_admin)
-):
-    """Listar usuarios (solo admin)"""
-    where_clauses = []
-    params = []
+@app.post("/gastos")
+async def create_gasto(gasto: GastoCreate, authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
     
-    if role:
-        where_clauses.append("role = %s")
-        params.append(role)
+    new_gasto = Gasto(
+        **gasto.dict(),
+        creado_por=user.id,
+        supervisor_asignado=user.supervisor_id,
+        estado="pendiente",
+        fecha_creacion=datetime.utcnow()
+    )
     
-    if activo is not None:
-        where_clauses.append("activo = %s")
-        params.append(activo)
+    db.add(new_gasto)
+    db.commit()
+    db.refresh(new_gasto)
     
-    where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-    params.extend([limit, skip])
-    
-    rows = db_query(f"SELECT * FROM usuarios WHERE {where_clause} ORDER BY fecha_creacion DESC LIMIT %s OFFSET %s", params)
-    return [UserResponse(**row) for row in rows]
-
-@app.post("/usuarios", response_model=UserResponse)
-def create_usuario(
-    user: UserCreate,
-    current_user = Depends(check_admin)
-):
-    """Crear usuario (solo admin)"""
-    # Verificar si existe
-    existing = db_query("SELECT id FROM usuarios WHERE email = %s", [user.email])
-    if existing:
-        raise HTTPException(status_code=400, detail="Email ya registrado")
-    
-    # Crear usuario
-    password_hash = hash_password(user.password)
-    rows = db_query("""
-        INSERT INTO usuarios (email, password_hash, nombre, apellidos, role, departamento, telefono, activo)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING *
-    """, [user.email, password_hash, user.nombre, user.apellidos, user.role, user.departamento, user.telefono, user.activo])
-    
-    return UserResponse(**rows[0])
-
-@app.put("/usuarios/{user_id}", response_model=UserResponse)
-def update_usuario(
-    user_id: int,
-    user_update: UserUpdate,
-    current_user = Depends(check_admin)
-):
-    """Actualizar usuario (solo admin)"""
-    # Verificar que existe
-    existing = db_query("SELECT * FROM usuarios WHERE id = %s", [user_id])
-    if not existing:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    # Construir UPDATE
-    set_parts = []
-    params = []
-    
-    if user_update.nombre:
-        set_parts.append("nombre = %s")
-        params.append(user_update.nombre)
-    
-    if user_update.apellidos is not None:
-        set_parts.append("apellidos = %s")
-        params.append(user_update.apellidos)
-    
-    if user_update.role:
-        set_parts.append("role = %s")
-        params.append(user_update.role)
-    
-    if user_update.departamento is not None:
-        set_parts.append("departamento = %s")
-        params.append(user_update.departamento)
-    
-    if user_update.telefono is not None:
-        set_parts.append("telefono = %s")
-        params.append(user_update.telefono)
-    
-    if user_update.activo is not None:
-        set_parts.append("activo = %s")
-        params.append(user_update.activo)
-    
-    if user_update.password:
-        set_parts.append("password_hash = %s")
-        params.append(hash_password(user_update.password))
-    
-    if not set_parts:
-        return UserResponse(**existing[0])
-    
-    params.append(user_id)
-    query = f"UPDATE usuarios SET {', '.join(set_parts)} WHERE id = %s RETURNING *"
-    
-    rows = db_query(query, params)
-    return UserResponse(**rows[0])
-
-@app.delete("/usuarios/{user_id}")
-def delete_usuario(
-    user_id: int,
-    current_user = Depends(check_admin)
-):
-    """Eliminar usuario (solo admin)"""
-    # No permitir eliminar al usuario actual
-    if user_id == current_user["id"]:
-        raise HTTPException(status_code=400, detail="No puedes eliminarte a ti mismo")
-    
-    # Verificar que existe
-    existing = db_query("SELECT id FROM usuarios WHERE id = %s", [user_id])
-    if not existing:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    db_query("DELETE FROM usuarios WHERE id = %s", [user_id])
-    return {"message": "Usuario eliminado correctamente"}
-
-@app.put("/usuarios/{user_id}/toggle-active")
-def toggle_user_active(
-    user_id: int,
-    current_user = Depends(check_admin)
-):
-    """Activar/desactivar usuario"""
-    rows = db_query("UPDATE usuarios SET activo = NOT activo WHERE id = %s RETURNING *", [user_id])
-    if not rows:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return UserResponse(**rows[0])
-
-# ==================== GASTOS ====================
-
-@app.get("/gastos", response_model=List[GastoResponse])
-def get_gastos(
-    skip: int = 0,
-    limit: int = 100,
-    estado: Optional[str] = None,
-    tipo_gasto: Optional[str] = None,
-    fecha_desde: Optional[str] = None,
-    fecha_hasta: Optional[str] = None,
-    current_user = Depends(get_current_user)
-):
-    """Listar gastos según permisos del usuario"""
-    where_clauses = []
-    params = []
-    
-    # Filtrar según rol
-    if current_user["role"] in ["empleado", "operario"]:
-        where_clauses.append("creado_por = %s")
-        params.append(current_user["id"])
-    elif current_user["role"] == "supervisor":
-        where_clauses.append("(creado_por = %s OR supervisor_asignado = %s)")
-        params.extend([current_user["id"], current_user["id"]])
-    
-    # Filtros adicionales
-    if estado:
-        where_clauses.append("estado = %s")
-        params.append(estado)
-    
-    if tipo_gasto:
-        where_clauses.append("tipo_gasto = %s")
-        params.append(tipo_gasto)
-    
-    if fecha_desde:
-        where_clauses.append("fecha_gasto >= %s")
-        params.append(fecha_desde)
-    
-    if fecha_hasta:
-        where_clauses.append("fecha_gasto <= %s")
-        params.append(fecha_hasta)
-    
-    where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-    params.extend([limit, skip])
-    
-    query = f"SELECT * FROM gastos WHERE {where_clause} ORDER BY fecha_creacion DESC LIMIT %s OFFSET %s"
-    rows = db_query(query, params)
-    
-    return [GastoResponse(**row) for row in rows]
-
-@app.post("/gastos", response_model=GastoResponse)
-def create_gasto(
-    gasto: GastoCreate,
-    current_user = Depends(get_current_user)
-):
-    """Crear gasto"""
-    # Obtener supervisor del usuario
-    user_data = db_query("SELECT supervisor_id FROM usuarios WHERE id = %s", [current_user["id"]])
-    supervisor_id = user_data[0].get("supervisor_id") if user_data else None
-    
-    # Crear gasto
-    rows = db_query("""
-        INSERT INTO gastos (
-            tipo_gasto, descripcion, obra, importe, fecha_gasto,
-            creado_por, supervisor_asignado, kilometros, precio_km, estado
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'pendiente')
-        RETURNING *
-    """, [
-        gasto.tipo_gasto, gasto.descripcion, gasto.obra, gasto.importe, gasto.fecha_gasto,
-        current_user["id"], supervisor_id, gasto.kilometros, gasto.precio_km
-    ])
-    
-    return GastoResponse(**rows[0])
+    return new_gasto
 
 @app.put("/gastos/{gasto_id}")
-def update_gasto(
-    gasto_id: int,
-    updates: GastoUpdate,
-    current_user = Depends(get_current_user)
-):
-    """Actualizar gasto"""
-    # Verificar que existe
-    gasto_rows = db_query("SELECT * FROM gastos WHERE id = %s", [gasto_id])
-    if not gasto_rows:
+async def update_gasto(gasto_id: int, update: GastoUpdate, authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    
+    gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
+    if not gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     
-    gasto = gasto_rows[0]
-    
     # Verificar permisos
-    if current_user["role"] in ["empleado", "operario"] and gasto["creado_por"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="No tienes permisos")
+    if user.role not in ["admin", "supervisor", "contabilidad"] and gasto.creado_por != user.id:
+        raise HTTPException(status_code=403, detail="Sin permisos para modificar este gasto")
     
-    # Si es empleado, solo puede editar gastos pendientes
-    if current_user["role"] in ["empleado", "operario"] and gasto["estado"] != "pendiente":
-        raise HTTPException(status_code=403, detail="Solo puedes editar gastos pendientes")
+    for key, value in update.dict(exclude_unset=True).items():
+        setattr(gasto, key, value)
     
-    # Construir UPDATE
-    set_parts = []
-    params = []
+    if update.estado == "aprobado":
+        gasto.fecha_aprobacion = datetime.utcnow()
+        gasto.aprobado_por = user.id
     
-    if updates.tipo_gasto:
-        set_parts.append("tipo_gasto = %s")
-        params.append(updates.tipo_gasto)
+    db.commit()
+    db.refresh(gasto)
     
-    if updates.descripcion:
-        set_parts.append("descripcion = %s")
-        params.append(updates.descripcion)
-    
-    if updates.obra is not None:
-        set_parts.append("obra = %s")
-        params.append(updates.obra)
-    
-    if updates.importe:
-        set_parts.append("importe = %s")
-        params.append(updates.importe)
-    
-    if updates.fecha_gasto:
-        set_parts.append("fecha_gasto = %s")
-        params.append(updates.fecha_gasto)
-    
-    if updates.kilometros is not None:
-        set_parts.append("kilometros = %s")
-        params.append(updates.kilometros)
-    
-    if updates.precio_km is not None:
-        set_parts.append("precio_km = %s")
-        params.append(updates.precio_km)
-    
-    if updates.estado and current_user["role"] in ["supervisor", "admin", "administrador", "contabilidad"]:
-        set_parts.append("estado = %s")
-        params.append(updates.estado)
-    
-    if updates.comentarios:
-        set_parts.append("comentarios = %s")
-        params.append(updates.comentarios)
-    
-    if updates.supervisor_asignado and current_user["role"] in ["admin", "administrador"]:
-        set_parts.append("supervisor_asignado = %s")
-        params.append(updates.supervisor_asignado)
-    
-    if not set_parts:
-        return GastoResponse(**gasto)
-    
-    params.append(gasto_id)
-    query = f"UPDATE gastos SET {', '.join(set_parts)} WHERE id = %s RETURNING *"
-    
-    rows = db_query(query, params)
-    return GastoResponse(**rows[0])
+    return gasto
 
 @app.delete("/gastos/{gasto_id}")
-def delete_gasto(
-    gasto_id: int,
-    current_user = Depends(get_current_user)
-):
-    """Eliminar gasto"""
-    # Verificar que existe
-    gasto_rows = db_query("SELECT * FROM gastos WHERE id = %s", [gasto_id])
-    if not gasto_rows:
+async def delete_gasto(gasto_id: int, authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    
+    gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
+    if not gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     
-    gasto = gasto_rows[0]
+    # Solo admin o el creador pueden eliminar
+    if user.role != "admin" and gasto.creado_por != user.id:
+        raise HTTPException(status_code=403, detail="Sin permisos para eliminar este gasto")
     
-    # Verificar permisos
-    is_admin = current_user["role"] in ["admin", "administrador"]
-    is_owner = gasto["creado_por"] == current_user["id"]
+    db.delete(gasto)
+    db.commit()
     
-    if not is_admin and not is_owner:
-        raise HTTPException(status_code=403, detail="No tienes permisos")
-    
-    if not is_admin and gasto["estado"] != "pendiente":
-        raise HTTPException(status_code=400, detail="Solo se pueden eliminar gastos pendientes")
-    
-    db_query("DELETE FROM gastos WHERE id = %s", [gasto_id])
     return {"message": "Gasto eliminado correctamente"}
 
-@app.post("/gastos/{gasto_id}/aprobar")
-def aprobar_gasto(
-    gasto_id: int,
-    comentarios: Optional[str] = None,
-    current_user = Depends(check_supervisor_or_admin)
-):
-    """Aprobar gasto"""
-    rows = db_query("""
-        UPDATE gastos 
-        SET estado = 'aprobado', 
-            comentarios = %s,
-            fecha_aprobacion = CURRENT_TIMESTAMP,
-            aprobado_por = %s
-        WHERE id = %s
-        RETURNING *
-    """, [comentarios, current_user["id"], gasto_id])
+# USUARIOS ENDPOINTS
+@app.get("/usuarios")
+async def get_usuarios(authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
     
-    if not rows:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Sin permisos para ver usuarios")
     
-    return GastoResponse(**rows[0])
-
-@app.post("/gastos/{gasto_id}/rechazar")
-def rechazar_gasto(
-    gasto_id: int,
-    comentarios: str,
-    current_user = Depends(check_supervisor_or_admin)
-):
-    """Rechazar gasto"""
-    if not comentarios:
-        raise HTTPException(status_code=400, detail="Debes proporcionar un motivo de rechazo")
-    
-    rows = db_query("""
-        UPDATE gastos 
-        SET estado = 'rechazado', 
-            comentarios = %s
-        WHERE id = %s
-        RETURNING *
-    """, [comentarios, gasto_id])
-    
-    if not rows:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado")
-    
-    return GastoResponse(**rows[0])
-
-# ==================== ROLES Y PERMISOS ====================
-
-@app.get("/roles")
-def get_roles(current_user = Depends(check_admin)):
-    """Obtener roles y sus permisos"""
-    roles = {
-        "administrador": {
-            "nombre": "Administrador",
-            "descripcion": "Acceso completo al sistema",
-            "permisos": {
-                "ver_gastos": True,
-                "crear_gastos": True,
-                "editar_gastos": True,
-                "eliminar_gastos": True,
-                "aprobar_gastos": True,
-                "ver_usuarios": True,
-                "crear_usuarios": True,
-                "editar_usuarios": True,
-                "eliminar_usuarios": True,
-                "ver_reportes": True,
-                "exportar_datos": True,
-                "configurar_sistema": True
-            }
-        },
-        "supervisor": {
-            "nombre": "Supervisor",
-            "descripcion": "Aprobar gastos de su equipo",
-            "permisos": {
-                "ver_gastos": True,
-                "crear_gastos": True,
-                "editar_gastos": True,
-                "eliminar_gastos": False,
-                "aprobar_gastos": True,
-                "ver_usuarios": False,
-                "crear_usuarios": False,
-                "editar_usuarios": False,
-                "eliminar_usuarios": False,
-                "ver_reportes": True,
-                "exportar_datos": True,
-                "configurar_sistema": False
-            }
-        },
-        "contabilidad": {
-            "nombre": "Contabilidad",
-            "descripcion": "Gestionar pagos y reportes",
-            "permisos": {
-                "ver_gastos": True,
-                "crear_gastos": False,
-                "editar_gastos": True,
-                "eliminar_gastos": False,
-                "aprobar_gastos": False,
-                "ver_usuarios": False,
-                "crear_usuarios": False,
-                "editar_usuarios": False,
-                "eliminar_usuarios": False,
-                "ver_reportes": True,
-                "exportar_datos": True,
-                "configurar_sistema": False
-            }
-        },
-        "operario": {
-            "nombre": "Operario",
-            "descripcion": "Crear y ver sus gastos",
-            "permisos": {
-                "ver_gastos": True,
-                "crear_gastos": True,
-                "editar_gastos": True,
-                "eliminar_gastos": True,
-                "aprobar_gastos": False,
-                "ver_usuarios": False,
-                "crear_usuarios": False,
-                "editar_usuarios": False,
-                "eliminar_usuarios": False,
-                "ver_reportes": False,
-                "exportar_datos": False,
-                "configurar_sistema": False
-            }
-        },
-        "empleado": {
-            "nombre": "Empleado",
-            "descripcion": "Crear y ver sus gastos",
-            "permisos": {
-                "ver_gastos": True,
-                "crear_gastos": True,
-                "editar_gastos": True,
-                "eliminar_gastos": True,
-                "aprobar_gastos": False,
-                "ver_usuarios": False,
-                "crear_usuarios": False,
-                "editar_usuarios": False,
-                "eliminar_usuarios": False,
-                "ver_reportes": False,
-                "exportar_datos": False,
-                "configurar_sistema": False
-            }
+    usuarios = db.query(User).all()
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "nombre": u.nombre,
+            "apellidos": u.apellidos,
+            "codigo_empleado": u.codigo_empleado,
+            "role": u.role,
+            "departamento": u.departamento,
+            "activo": u.activo
         }
-    }
-    return roles
+        for u in usuarios
+    ]
 
-# ==================== REPORTES ====================
-
-@app.get("/reportes/dashboard")
-def get_dashboard_report(current_user = Depends(get_current_user)):
-    """Reporte completo para el dashboard"""
-    try:
-        # Total de gastos según rol
-        if current_user["role"] in ["empleado", "operario"]:
-            where_clause = "WHERE creado_por = %s"
-            params = [current_user["id"]]
-        elif current_user["role"] == "supervisor":
-            where_clause = "WHERE (creado_por = %s OR supervisor_asignado = %s)"
-            params = [current_user["id"], current_user["id"]]
-        else:
-            where_clause = ""
-            params = []
-        
-        # Convertir %s a $1, $2...
-        query_where = where_clause
-        for i in range(len(params)):
-            query_where = query_where.replace('%s', f'${i+1}', 1)
-        
-        # Total de gastos
-        total_query = f"SELECT COUNT(*) as total FROM gastos {query_where}"
-        total_result = db_query(total_query, params)
-        total_gastos = total_result[0]["total"] if total_result else 0
-        
-        # Gastos por estado
-        estados_query = f"SELECT estado, COUNT(*) as count FROM gastos {query_where} GROUP BY estado"
-        estados_result = db_query(estados_query, params)
-        
-        gastos_por_estado = {}
-        for row in estados_result:
-            gastos_por_estado[row["estado"]] = row["count"]
-        
-        # Total importe
-        importe_query = f"SELECT COALESCE(SUM(importe), 0) as total FROM gastos {query_where}"
-        importe_result = db_query(importe_query, params)
-        total_importe = float(importe_result[0]["total"]) if importe_result else 0
-        
-        # Gastos por tipo
-        tipo_query = f"SELECT tipo_gasto, COUNT(*) as count FROM gastos {query_where} GROUP BY tipo_gasto"
-        tipo_result = db_query(tipo_query, params)
-        
-        gastos_por_tipo = {
-            "dietas": 0,
-            "aparcamiento": 0,
-            "gasolina": 0,
-            "otros": 0
-        }
-        
-        for row in tipo_result:
-            tipo = row["tipo_gasto"].lower()
-            if "diet" in tipo or "alimenta" in tipo:
-                gastos_por_tipo["dietas"] += row["count"]
-            elif "aparca" in tipo or "parking" in tipo:
-                gastos_por_tipo["aparcamiento"] += row["count"]
-            elif "gasol" in tipo or "combustible" in tipo:
-                gastos_por_tipo["gasolina"] += row["count"]
-            else:
-                gastos_por_tipo["otros"] += row["count"]
-        
-        return {
-            "total_gastos": total_gastos,
-            "total_importe": total_importe,
-            "pendientes": gastos_por_estado.get("pendiente", 0),
-            "aprobados": gastos_por_estado.get("aprobado", 0),
-            "rechazados": gastos_por_estado.get("rechazado", 0),
-            "pagados": gastos_por_estado.get("pagado", 0),
-            "por_tipo": gastos_por_tipo,
-            "gastos_por_estado": gastos_por_estado
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting dashboard: {str(e)}")
-
-@app.get("/reportes/gastos")
-def get_reportes_gastos(
-    fecha_desde: Optional[str] = None,
-    fecha_hasta: Optional[str] = None,
-    estado: Optional[str] = None,
-    tipo_gasto: Optional[str] = None,
-    usuario_id: Optional[int] = None,
-    current_user = Depends(check_supervisor_or_admin)
-):
-    """Reporte detallado de gastos"""
-    where_clauses = []
-    params = []
+@app.post("/usuarios")
+async def create_usuario(user_data: UserCreate, authorization: str = Header(None), db: Session = Depends(get_db)):
+    current_user = get_current_user(authorization, db)
     
-    if fecha_desde:
-        where_clauses.append("fecha_gasto >= %s")
-        params.append(fecha_desde)
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Sin permisos para crear usuarios")
     
-    if fecha_hasta:
-        where_clauses.append("fecha_gasto <= %s")
-        params.append(fecha_hasta)
+    # Verificar si el usuario ya existe
+    existing = db.query(User).filter(User.email == user_data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="El email ya está registrado")
     
-    if estado:
-        where_clauses.append("estado = %s")
-        params.append(estado)
-    
-    if tipo_gasto:
-        where_clauses.append("tipo_gasto = %s")
-        params.append(tipo_gasto)
-    
-    if usuario_id:
-        where_clauses.append("creado_por = %s")
-        params.append(usuario_id)
-    
-    where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-    
-    rows = db_query(f"""
-        SELECT g.*, u.nombre as usuario_nombre, u.apellidos as usuario_apellidos
-        FROM gastos g
-        LEFT JOIN usuarios u ON g.creado_por = u.id
-        WHERE {where_clause}
-        ORDER BY g.fecha_gasto DESC
-    """, params)
-    
-    return rows
-
-@app.get("/reportes/export")
-def export_gastos(
-    fecha_desde: Optional[str] = None,
-    fecha_hasta: Optional[str] = None,
-    formato: str = "csv",
-    current_user = Depends(check_supervisor_or_admin)
-):
-    """Exportar gastos a CSV"""
-    where_clauses = []
-    params = []
-    
-    if fecha_desde:
-        where_clauses.append("fecha_gasto >= %s")
-        params.append(fecha_desde)
-    
-    if fecha_hasta:
-        where_clauses.append("fecha_gasto <= %s")
-        params.append(fecha_hasta)
-    
-    where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-    
-    rows = db_query(f"""
-        SELECT 
-            g.id, g.tipo_gasto, g.descripcion, g.obra, g.importe, 
-            g.fecha_gasto, g.estado, g.kilometros, g.precio_km,
-            u.nombre as usuario_nombre, u.apellidos as usuario_apellidos,
-            u.email as usuario_email
-        FROM gastos g
-        LEFT JOIN usuarios u ON g.creado_por = u.id
-        WHERE {where_clause}
-        ORDER BY g.fecha_gasto DESC
-    """, params)
-    
-    # Crear CSV
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=rows[0].keys() if rows else [])
-    writer.writeheader()
-    writer.writerows(rows)
-    
-    # Preparar respuesta
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=gastos_{datetime.now().strftime('%Y%m%d')}.csv"
-        }
+    new_user = User(
+        email=user_data.email,
+        password_hash=get_password_hash(user_data.password),
+        nombre=user_data.nombre,
+        apellidos=user_data.apellidos,
+        codigo_empleado=user_data.codigo_empleado,
+        telefono=user_data.telefono,
+        direccion=user_data.direccion,
+        role=user_data.role,
+        departamento=user_data.departamento,
+        supervisor_id=user_data.supervisor_id,
+        activo=True
     )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return {
+        "id": new_user.id,
+        "email": new_user.email,
+        "nombre": new_user.nombre,
+        "apellidos": new_user.apellidos,
+        "role": new_user.role
+    }
 
-# ==================== CONFIGURACIÓN ====================
+@app.put("/usuarios/{user_id}")
+async def update_usuario(user_id: int, update: UserUpdate, authorization: str = Header(None), db: Session = Depends(get_db)):
+    current_user = get_current_user(authorization, db)
+    
+    if current_user.role != "admin" and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Sin permisos para modificar este usuario")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    for key, value in update.dict(exclude_unset=True).items():
+        setattr(user, key, value)
+    
+    user.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(user)
+    
+    return {
+        "id": user.id,
+        "email": user.email,
+        "nombre": user.nombre,
+        "apellidos": user.apellidos,
+        "role": user.role
+    }
 
+@app.delete("/usuarios/{user_id}")
+async def delete_usuario(user_id: int, authorization: str = Header(None), db: Session = Depends(get_db)):
+    current_user = get_current_user(authorization, db)
+    
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Sin permisos para eliminar usuarios")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # No eliminar, solo desactivar
+    user.activo = False
+    db.commit()
+    
+    return {"message": "Usuario desactivado correctamente"}
+
+# CONFIG ENDPOINTS
 @app.get("/config")
-def get_config():
-    """Configuración pública (sin autenticación)"""
-    return {
-        "empresa": {
-            "nombre": "GrupLomi",
-            "logo_url": None,
-            "colores": {
-                "primario": "#1976d2",
-                "secundario": "#dc004e",
-                "acento": "#28a745"
-            }
-        },
-        "gastos": {
-            "tipos_gasto": [
-                {"id": "transporte", "nombre": "Transporte", "icon": "🚗"},
-                {"id": "alimentacion", "nombre": "Alimentación", "icon": "🍽️"},
-                {"id": "hospedaje", "nombre": "Hospedaje", "icon": "🏨"},
-                {"id": "material", "nombre": "Material", "icon": "💼"},
-                {"id": "combustible", "nombre": "Combustible", "icon": "⛽"},
-                {"id": "kilometros", "nombre": "Kilómetros", "icon": "📍"},
-                {"id": "otro", "nombre": "Otro", "icon": "📎"}
-            ],
-            "estados": [
-                {"id": "pendiente", "nombre": "Pendiente", "color": "#ffc107"},
-                {"id": "aprobado", "nombre": "Aprobado", "color": "#28a745"},
-                {"id": "rechazado", "nombre": "Rechazado", "color": "#dc3545"},
-                {"id": "pagado", "nombre": "Pagado", "color": "#0066CC"}
-            ]
-        },
-        "idioma": {
-            "actual": "es",
-            "disponibles": ["es", "en"],
-            "traducciones": {
-                "gastos": "Gastos",
-                "nuevo_gasto": "Nuevo Gasto",
-                "mis_gastos": "Mis Gastos",
-                "dashboard": "Panel de Control",
-                "usuarios": "Usuarios",
-                "configuracion": "Configuración",
-                "cerrar_sesion": "Cerrar Sesión",
-                "hola": "Hola",
-                "bienvenida": "Bienvenido al sistema de gastos",
-                "footer": "© 2025 - Sistema de gestión de gastos"
-            }
-        },
-        "apariencia": {
-            "modo_oscuro": False,
-            "tema": "default"
-        },
-        "version": "3.0.0",
-        "permite_registro": False,
-        "moneda": "EUR",
-        "precio_km_default": 0.19,
-        "roles": [
-            {"value": "empleado", "label": "Empleado"},
-            {"value": "operario", "label": "Operario"},
-            {"value": "supervisor", "label": "Supervisor"},
-            {"value": "contabilidad", "label": "Contabilidad"},
-            {"value": "administrador", "label": "Administrador"}
-        ]
-    }
+async def get_config(db: Session = Depends(get_db)):
+    configs = db.query(SystemConfig).all()
+    config_dict = {}
+    
+    for config in configs:
+        try:
+            config_dict[config.key] = json.loads(config.value)
+        except:
+            config_dict[config.key] = config.value
+    
+    return config_dict
 
-@app.get("/config/sistema")
-def get_system_config(current_user = Depends(check_admin)):
-    """Configuración del sistema (solo admin)"""
-    return {
-        "empresa_nombre": "GrupLomi",
-        "version": "3.0.0",
-        "proxy_enabled": True,
-        "categorias_gastos": [
-            "Transporte",
-            "Alimentación",
-            "Hospedaje",
-            "Material",
-            "Combustible",
-            "Kilómetros",
-            "Otro"
-        ],
-        "limite_aprobacion_supervisor": 1000.0,
-        "requiere_justificante": True,
-        "campos_obligatorios": ["tipo_gasto", "descripcion", "importe", "fecha_gasto"],
-        "notificaciones": {
-            "email_enabled": False,
-            "notificar_nuevo_gasto": True,
-            "notificar_aprobacion": True,
-            "notificar_rechazo": True
+@app.get("/config/admin")
+async def get_admin_config(authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Sin permisos para ver configuración de admin")
+    
+    configs = db.query(SystemConfig).all()
+    config_dict = {}
+    
+    for config in configs:
+        try:
+            config_dict[config.key] = json.loads(config.value)
+        except:
+            config_dict[config.key] = config.value
+    
+    return config_dict
+
+@app.put("/config/admin")
+async def update_config(update: ConfigUpdate, authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Sin permisos para modificar configuración")
+    
+    for key, value in update.dict(exclude_unset=True).items():
+        config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+        
+        if config:
+            config.value = json.dumps(value)
+            config.updated_at = datetime.utcnow()
+        else:
+            config = SystemConfig(key=key, value=json.dumps(value))
+            db.add(config)
+    
+    db.commit()
+    
+    return {"success": True, "message": "Configuración actualizada correctamente"}
+
+@app.put("/config/language")
+async def update_language(language: Dict[str, str], authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    
+    user.idioma_preferido = language.get("language", "es")
+    db.commit()
+    
+    return {"success": True, "language": user.idioma_preferido}
+
+# ROLES ENDPOINTS
+@app.get("/roles")
+async def get_roles(authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Sin permisos para ver roles")
+    
+    roles = db.query(Role).all()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "permissions": json.loads(r.permissions) if r.permissions else [],
+            "description": r.description
         }
-    }
+        for r in roles
+    ]
 
-@app.put("/config/gastos")
-def update_config_gastos(
-    config: ConfigGastos,
-    current_user = Depends(check_admin)
-):
-    """Actualizar configuración de gastos"""
-    # En una implementación real, esto se guardaría en la BD
+# REPORTS ENDPOINTS
+@app.get("/reportes/dashboard")
+async def get_dashboard(authorization: str = Header(None), db: Session = Depends(get_db)):
+    user = get_current_user(authorization, db)
+    
+    # Estadísticas básicas
+    if user.role in ["admin", "contabilidad"]:
+        total_gastos = db.query(Gasto).count()
+        gastos_pendientes = db.query(Gasto).filter(Gasto.estado == "pendiente").count()
+        gastos_aprobados = db.query(Gasto).filter(Gasto.estado == "aprobado").count()
+        total_importe = db.query(func.sum(Gasto.importe)).filter(Gasto.estado == "aprobado").scalar() or 0
+    else:
+        total_gastos = db.query(Gasto).filter(Gasto.creado_por == user.id).count()
+        gastos_pendientes = db.query(Gasto).filter(
+            Gasto.creado_por == user.id, Gasto.estado == "pendiente"
+        ).count()
+        gastos_aprobados = db.query(Gasto).filter(
+            Gasto.creado_por == user.id, Gasto.estado == "aprobado"
+        ).count()
+        total_importe = db.query(func.sum(Gasto.importe)).filter(
+            Gasto.creado_por == user.id, Gasto.estado == "aprobado"
+        ).scalar() or 0
+    
     return {
-        "message": "Configuración de gastos actualizada",
-        "config": config.dict()
+        "total_gastos": total_gastos,
+        "gastos_pendientes": gastos_pendientes,
+        "gastos_aprobados": gastos_aprobados,
+        "total_importe": float(total_importe),
+        "ultimo_update": datetime.utcnow().isoformat()
     }
 
-@app.put("/config/notificaciones")
-def update_config_notificaciones(
-    config: ConfigNotificaciones,
-    current_user = Depends(check_admin)
-):
-    """Actualizar configuración de notificaciones"""
-    return {
-        "message": "Configuración de notificaciones actualizada",
-        "config": config.dict()
-    }
-
-@app.put("/config/smtp")
-def update_config_smtp(
-    config: ConfigSMTP,
-    current_user = Depends(check_admin)
-):
-    """Configurar SMTP para envío de emails"""
-    return {
-        "message": "Configuración SMTP actualizada",
-        "config": {
-            "smtp_host": config.smtp_host,
-            "smtp_port": config.smtp_port,
-            "smtp_user": config.smtp_user,
-            "smtp_from": config.smtp_from
-            # No devolver password
-        }
-    }
-
-# NOTA: Vercel detecta FastAPI automáticamente
-# NO usar: handler = app (causa crash)
+# Handler for Vercel
+handler = app
