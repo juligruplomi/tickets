@@ -4,25 +4,32 @@ import urllib.parse
 import datetime
 import os
 from typing import Dict, Any, Optional
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import jwt
 import bcrypt
+import requests
 
-# Configuración de base de datos externa
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://gruplomi_user:GrupLomi2024#Secure!@185.194.59.40:5432/gruplomi_tickets")
+# Configuración del PROXY HTTP (no conexión directa a PostgreSQL)
+PROXY_URL = os.getenv("PROXY_URL", "http://185.194.59.40:3001")
+PROXY_API_KEY = os.getenv("PROXY_API_KEY", "GrupLomi2024ProxySecureKey_XyZ789")
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "GrupLomi_JWT_Secret_Key_2024_Very_Secure_Hash")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
 
-def get_db_connection():
-    """Conectar a PostgreSQL"""
+def db_query(text: str, params: list = None):
+    """Ejecutar query a través del proxy HTTP"""
     try:
-        conn = psycopg2.connect(DATABASE_URL)
-        return conn
+        response = requests.post(
+            f"{PROXY_URL}/query",
+            json={"text": text, "params": params or []},
+            headers={"x-api-key": PROXY_API_KEY},
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("rows", [])
     except Exception as e:
-        print(f"Error conectando a BD: {e}")
-        return None
+        print(f"Error en db_query: {e}")
+        return []
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -92,144 +99,99 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
         try:
             parsed_path = urllib.parse.urlparse(self.path)
             path = parsed_path.path
-            query_params = urllib.parse.parse_qs(parsed_path.query)
             
-            # ===== ENDPOINTS PRINCIPALES =====
-            
+            # ===== ROOT =====
             if path == '/' or path == '/api':
                 self._send_json_response({
-                    "message": "API de Gastos GrupLomi v2.0 - PostgreSQL",
+                    "message": "API de Gastos GrupLomi v2.0 - Proxy HTTP",
                     "status": "online",
                     "version": "2.0.0",
-                    "database": "PostgreSQL Externo"
+                    "database": "PostgreSQL via Proxy"
                 })
                 
+            # ===== HEALTH =====
             elif path == '/health':
-                conn = get_db_connection()
-                if conn:
-                    conn.close()
-                    self._send_json_response({"status": "healthy", "database": "connected"})
-                else:
-                    self._send_json_response({"status": "unhealthy", "database": "disconnected"}, 500)
+                try:
+                    response = requests.get(f"{PROXY_URL}/health", timeout=5)
+                    proxy_status = "connected" if response.status_code == 200 else "error"
+                except:
+                    proxy_status = "disconnected"
                 
-            # ===== AUTENTICACIÓN =====
-            
+                self._send_json_response({
+                    "status": "healthy" if proxy_status == "connected" else "unhealthy",
+                    "proxy_status": proxy_status,
+                    "timestamp": datetime.datetime.utcnow().isoformat()
+                })
+                
+            # ===== AUTH/ME =====
             elif path == '/auth/me':
                 user_token = self._verify_token()
                 if not user_token:
                     self._send_json_response({"error": "Token inválido"}, 401)
                     return
                 
-                conn = get_db_connection()
-                if not conn:
-                    self._send_json_response({"error": "Error de conexión"}, 500)
-                    return
-                
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-                cur.execute("SELECT * FROM usuarios WHERE id = %s", (user_token['user_id'],))
-                user = cur.fetchone()
-                cur.close()
-                conn.close()
-                
-                if user:
-                    user_dict = dict(user)
-                    user_dict.pop('password_hash', None)
-                    self._send_json_response(user_dict)
+                rows = db_query("SELECT * FROM usuarios WHERE id = $1", [user_token['user_id']])
+                if rows:
+                    user = dict(rows[0])
+                    user.pop('password_hash', None)
+                    self._send_json_response(user)
                 else:
                     self._send_json_response({"error": "Usuario no encontrado"}, 404)
             
             # ===== GASTOS =====
-            
             elif path == '/gastos':
                 user_token = self._verify_token()
                 if not user_token:
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                conn = get_db_connection()
-                if not conn:
-                    self._send_json_response({"error": "Error de conexión"}, 500)
-                    return
-                
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-                
                 # Filtrar gastos según rol
                 if user_token['role'] == 'empleado':
-                    cur.execute("SELECT * FROM gastos WHERE creado_por = %s ORDER BY fecha_creacion DESC", 
-                              (user_token['user_id'],))
+                    rows = db_query("SELECT * FROM gastos WHERE creado_por = $1 ORDER BY fecha_creacion DESC", [user_token['user_id']])
                 elif user_token['role'] == 'supervisor':
-                    cur.execute("SELECT * FROM gastos WHERE creado_por = %s OR supervisor_asignado = %s ORDER BY fecha_creacion DESC", 
-                              (user_token['user_id'], user_token['user_id']))
+                    rows = db_query("SELECT * FROM gastos WHERE creado_por = $1 OR supervisor_asignado = $1 ORDER BY fecha_creacion DESC", [user_token['user_id']])
                 else:
-                    cur.execute("SELECT * FROM gastos ORDER BY fecha_creacion DESC")
+                    rows = db_query("SELECT * FROM gastos ORDER BY fecha_creacion DESC")
                 
-                gastos = cur.fetchall()
-                cur.close()
-                conn.close()
-                
-                self._send_json_response([dict(g) for g in gastos])
+                self._send_json_response([dict(r) for r in rows])
             
             # ===== USUARIOS =====
-            
             elif path == '/usuarios':
                 user_token = self._verify_token()
                 if not user_token or user_token['role'] != 'admin':
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                conn = get_db_connection()
-                if not conn:
-                    self._send_json_response({"error": "Error de conexión"}, 500)
-                    return
-                
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-                cur.execute("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios")
-                usuarios = cur.fetchall()
-                cur.close()
-                conn.close()
-                
-                self._send_json_response([dict(u) for u in usuarios])
+                rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios")
+                self._send_json_response([dict(r) for r in rows])
             
             # ===== DASHBOARD =====
-            
             elif path == '/reportes/dashboard':
                 user_token = self._verify_token()
                 if not user_token:
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                conn = get_db_connection()
-                if not conn:
-                    self._send_json_response({"error": "Error de conexión"}, 500)
-                    return
+                total_gastos_rows = db_query("SELECT COUNT(*) as total FROM gastos")
+                total_gastos = total_gastos_rows[0]['total'] if total_gastos_rows else 0
                 
-                cur = conn.cursor(cursor_factory=RealDictCursor)
+                total_importe_rows = db_query("SELECT SUM(importe) as total FROM gastos")
+                total_importe = float(total_importe_rows[0]['total'] or 0) if total_importe_rows else 0
                 
-                # Estadísticas básicas
-                cur.execute("SELECT COUNT(*) as total FROM gastos")
-                total_gastos = cur.fetchone()['total']
+                pendientes_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE estado = $1", ['pendiente'])
+                pendientes = pendientes_rows[0]['total'] if pendientes_rows else 0
                 
-                cur.execute("SELECT SUM(importe) as total FROM gastos")
-                total_importe = cur.fetchone()['total'] or 0
-                
-                cur.execute("SELECT COUNT(*) as total FROM gastos WHERE estado = 'pendiente'")
-                pendientes = cur.fetchone()['total']
-                
-                cur.execute("SELECT COUNT(*) as total FROM gastos WHERE estado = 'aprobado'")
-                aprobados = cur.fetchone()['total']
-                
-                cur.close()
-                conn.close()
+                aprobados_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE estado = $1", ['aprobado'])
+                aprobados = aprobados_rows[0]['total'] if aprobados_rows else 0
                 
                 self._send_json_response({
                     "total_gastos": total_gastos,
-                    "total_importe": float(total_importe),
+                    "total_importe": total_importe,
                     "pendientes": pendientes,
                     "aprobados": aprobados
                 })
             
-            # ===== CONFIGURACIÓN (estructura corregida para el frontend) =====
-            
+            # ===== CONFIG =====
             elif path == '/config':
                 self._send_json_response({
                     "modo_oscuro": False,
@@ -288,7 +250,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
             data = self._get_request_data()
             
             # ===== LOGIN =====
-            
             if path == '/auth/login':
                 email = data.get('email') or data.get('username')
                 password = data.get('password')
@@ -297,71 +258,55 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Email y contraseña requeridos"}, 400)
                     return
                 
-                conn = get_db_connection()
-                if not conn:
-                    self._send_json_response({"error": "Error de conexión a la base de datos"}, 500)
+                rows = db_query("SELECT * FROM usuarios WHERE email = $1", [email])
+                
+                if not rows:
+                    self._send_json_response({"error": "Credenciales incorrectas"}, 401)
                     return
                 
-                try:
-                    cur = conn.cursor(cursor_factory=RealDictCursor)
-                    cur.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
-                    user = cur.fetchone()
-                    cur.close()
-                    conn.close()
-                    
-                    if not user or not verify_password(password, user['password_hash']):
-                        self._send_json_response({"error": "Credenciales incorrectas"}, 401)
-                        return
-                    
-                    if not user.get('activo', True):
-                        self._send_json_response({"error": "Usuario desactivado"}, 401)
-                        return
-                    
-                    token = create_token(user)
-                    user_dict = dict(user)
-                    user_dict.pop('password_hash', None)
-                    
-                    self._send_json_response({
-                        "access_token": token,
-                        "token_type": "bearer",
-                        "user": user_dict
-                    })
-                except Exception as e:
-                    print(f"Error en login: {e}")
-                    self._send_json_response({"error": "Error al procesar login", "details": str(e)}, 500)
+                user = dict(rows[0])
+                
+                if not verify_password(password, user['password_hash']):
+                    self._send_json_response({"error": "Credenciales incorrectas"}, 401)
+                    return
+                
+                if not user.get('activo', True):
+                    self._send_json_response({"error": "Usuario desactivado"}, 401)
+                    return
+                
+                token = create_token(user)
+                user.pop('password_hash', None)
+                
+                self._send_json_response({
+                    "access_token": token,
+                    "token_type": "bearer",
+                    "user": user
+                })
             
             # ===== CREAR GASTO =====
-            
             elif path == '/gastos':
                 user_token = self._verify_token()
                 if not user_token:
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                conn = get_db_connection()
-                if not conn:
-                    self._send_json_response({"error": "Error de conexión"}, 500)
-                    return
-                
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-                cur.execute("""
+                rows = db_query("""
                     INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'pendiente')
+                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
                     RETURNING *
-                """, (
+                """, [
                     data.get('tipo_gasto'),
                     data.get('descripcion'),
                     data.get('obra'),
                     data.get('importe'),
                     data.get('fecha_gasto'),
                     user_token['user_id']
-                ))
-                gasto = cur.fetchone()
-                conn.commit()
-                cur.close()
-                conn.close()
+                ])
                 
-                self._send_json_response(dict(gasto), 201)
+                if rows:
+                    self._send_json_response(dict(rows[0]), 201)
+                else:
+                    self._send_json_response({"error": "Error al crear gasto"}, 500)
             
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
@@ -382,39 +327,30 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 return
             
             # ===== ACTUALIZAR GASTO =====
-            
             if path.startswith('/gastos/'):
                 gasto_id = path.split('/')[-1]
                 
-                conn = get_db_connection()
-                if not conn:
-                    self._send_json_response({"error": "Error de conexión"}, 500)
-                    return
-                
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-                
-                # Verificar permisos
-                cur.execute("SELECT * FROM gastos WHERE id = %s", (gasto_id,))
-                gasto = cur.fetchone()
-                
-                if not gasto:
-                    cur.close()
-                    conn.close()
+                # Verificar que existe
+                gasto_rows = db_query("SELECT * FROM gastos WHERE id = $1", [gasto_id])
+                if not gasto_rows:
                     self._send_json_response({"error": "Gasto no encontrado"}, 404)
                     return
                 
-                # Actualizar estado si tiene permisos
+                gasto = dict(gasto_rows[0])
+                
+                # Verificar permisos
+                if user_token['role'] == 'empleado' and gasto['creado_por'] != user_token['user_id']:
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                # Actualizar estado
                 if data.get('estado') and user_token['role'] in ['admin', 'supervisor']:
-                    cur.execute("UPDATE gastos SET estado = %s WHERE id = %s RETURNING *", 
-                              (data['estado'], gasto_id))
-                    gasto_actualizado = cur.fetchone()
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-                    self._send_json_response(dict(gasto_actualizado))
+                    updated_rows = db_query("UPDATE gastos SET estado = $1 WHERE id = $2 RETURNING *", [data['estado'], gasto_id])
+                    if updated_rows:
+                        self._send_json_response(dict(updated_rows[0]))
+                    else:
+                        self._send_json_response({"error": "Error al actualizar"}, 500)
                 else:
-                    cur.close()
-                    conn.close()
                     self._send_json_response({"error": "Sin permisos"}, 403)
             
             else:
@@ -435,37 +371,22 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 return
             
             # ===== ELIMINAR GASTO =====
-            
             if path.startswith('/gastos/'):
                 gasto_id = path.split('/')[-1]
                 
-                conn = get_db_connection()
-                if not conn:
-                    self._send_json_response({"error": "Error de conexión"}, 500)
-                    return
-                
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-                cur.execute("SELECT * FROM gastos WHERE id = %s", (gasto_id,))
-                gasto = cur.fetchone()
-                
-                if not gasto:
-                    cur.close()
-                    conn.close()
+                gasto_rows = db_query("SELECT * FROM gastos WHERE id = $1", [gasto_id])
+                if not gasto_rows:
                     self._send_json_response({"error": "Gasto no encontrado"}, 404)
                     return
                 
-                # Solo admin o creador pueden eliminar
+                gasto = dict(gasto_rows[0])
+                
+                # Verificar permisos
                 if user_token['role'] != 'admin' and gasto['creado_por'] != user_token['user_id']:
-                    cur.close()
-                    conn.close()
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                cur.execute("DELETE FROM gastos WHERE id = %s", (gasto_id,))
-                conn.commit()
-                cur.close()
-                conn.close()
-                
+                db_query("DELETE FROM gastos WHERE id = $1", [gasto_id])
                 self._send_json_response({"message": "Gasto eliminado correctamente"})
             
             else:

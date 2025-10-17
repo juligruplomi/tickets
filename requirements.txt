@@ -1,8 +1,7 @@
-# Servidor HTTP
-# No se necesita FastAPI ni uvicorn
+# Servidor HTTP (built-in, no necesita instalación)
 
-# Base de datos PostgreSQL
-psycopg2-binary==2.9.9
+# Base de datos (a través de proxy HTTP)
+requests==2.31.0
 
 # Autenticación
 pyjwt==2.8.0
