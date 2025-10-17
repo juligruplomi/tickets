@@ -11,7 +11,7 @@ USERS_DB = {
     "admin@gruplomi.com": {
         "id": 1,
         "email": "admin@gruplomi.com",
-        "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
+        "password_hash": hashlib.sha256("AdminGrupLomi2025".encode()).hexdigest(),
         "nombre": "Carlos",
         "apellidos": "Administrador López",
         "codigo_empleado": "ADM001",
@@ -677,7 +677,8 @@ class GastosAPI(BaseHTTPRequestHandler):
             data = self._get_request_data()
             
             if path == '/auth/login':
-                email = data.get('username')  
+                # Aceptar tanto 'email' como 'username' para compatibilidad
+                email = data.get('email') or data.get('username')
                 password = data.get('password')
                 
                 if not email or not password:
