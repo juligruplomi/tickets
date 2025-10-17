@@ -394,6 +394,30 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
         except Exception as e:
             print(f"Error en DELETE: {e}")
-            self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
+            # Gastos por tipo
+dietas_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['dieta'])
+dietas = dietas_rows[0]['total'] if dietas_rows else 0
+
+aparcamiento_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['aparcamiento'])
+aparcamiento = aparcamiento_rows[0]['total'] if aparcamiento_rows else 0
+
+gasolina_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['gasolina'])
+gasolina = gasolina_rows[0]['total'] if gasolina_rows else 0
+
+otros_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto NOT IN ($1, $2, $3)", ['dieta', 'aparcamiento', 'gasolina'])
+otros = otros_rows[0]['total'] if otros_rows else 0
+
+self._send_json_response({
+    "total_gastos": total_gastos,
+    "total_importe": total_importe,
+    "pendientes": pendientes,
+    "aprobados": aprobados,
+    "por_tipo": {
+        "dietas": dietas,
+        "aparcamiento": aparcamiento,
+        "gasolina": gasolina,
+        "otros": otros
+    }
+})
 
 handler = GrupLomiAPI
