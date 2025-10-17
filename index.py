@@ -1,7 +1,6 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import urllib.parse
-import hashlib
 import datetime
 import os
 from typing import Dict, Any, Optional
@@ -229,25 +228,49 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     "aprobados": aprobados
                 })
             
-            # ===== CONFIGURACIÓN =====
+            # ===== CONFIGURACIÓN (estructura corregida para el frontend) =====
             
             elif path == '/config':
                 self._send_json_response({
-                    "empresa": {
-                        "nombre": "GrupLomi",
-                        "logo_url": "/logo.png",
-                        "colores": {
-                            "primario": "#0066CC",
-                            "secundario": "#f8f9fa"
-                        }
+                    "modo_oscuro": False,
+                    "idioma_principal": "es",
+                    "nombre_empresa": "GrupLomi",
+                    "logo_url": "",
+                    "color_primario": "#0066CC",
+                    "color_secundario": "#f8f9fa",
+                    "color_acento": "#28a745",
+                    "metodos_pago": ["efectivo", "tarjeta", "transferencia"],
+                    "limite_gasto_diario": 500,
+                    "limite_gasto_mensual": 5000,
+                    "categorias_gasto": [
+                        {"id": "dieta", "nombre": "Dietas", "activo": True},
+                        {"id": "gasolina", "nombre": "Combustible", "activo": True},
+                        {"id": "aparcamiento", "nombre": "Aparcamiento", "activo": True},
+                        {"id": "hotel", "nombre": "Alojamiento", "activo": True},
+                        {"id": "transporte", "nombre": "Transporte", "activo": True},
+                        {"id": "material", "nombre": "Material", "activo": True},
+                        {"id": "formacion", "nombre": "Formación", "activo": True},
+                        {"id": "otros", "nombre": "Otros", "activo": True}
+                    ],
+                    "idiomas": {
+                        "es": {"activo": True, "nombre": "Español"},
+                        "en": {"activo": True, "nombre": "English"},
+                        "ca": {"activo": True, "nombre": "Català"},
+                        "de": {"activo": True, "nombre": "Deutsch"},
+                        "it": {"activo": True, "nombre": "Italiano"},
+                        "pt": {"activo": True, "nombre": "Português"}
                     },
-                    "gastos": {
-                        "tipos_gasto": [
-                            {"id": "dieta", "nombre": "Dietas"},
-                            {"id": "gasolina", "nombre": "Combustible"},
-                            {"id": "aparcamiento", "nombre": "Aparcamiento"},
-                            {"id": "otros", "nombre": "Otros"}
-                        ]
+                    "notificaciones": {
+                        "email_activo": False,
+                        "smtp_host": "",
+                        "smtp_port": 587,
+                        "smtp_user": "",
+                        "smtp_password": "",
+                        "eventos": {
+                            "nuevo_gasto": True,
+                            "gasto_aprobado": True,
+                            "gasto_rechazado": True
+                        }
                     }
                 })
             
@@ -279,29 +302,33 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Error de conexión a la base de datos"}, 500)
                     return
                 
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-                cur.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
-                user = cur.fetchone()
-                cur.close()
-                conn.close()
-                
-                if not user or not verify_password(password, user['password_hash']):
-                    self._send_json_response({"error": "Credenciales incorrectas"}, 401)
-                    return
-                
-                if not user.get('activo', True):
-                    self._send_json_response({"error": "Usuario desactivado"}, 401)
-                    return
-                
-                token = create_token(user)
-                user_dict = dict(user)
-                user_dict.pop('password_hash', None)
-                
-                self._send_json_response({
-                    "access_token": token,
-                    "token_type": "bearer",
-                    "user": user_dict
-                })
+                try:
+                    cur = conn.cursor(cursor_factory=RealDictCursor)
+                    cur.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
+                    user = cur.fetchone()
+                    cur.close()
+                    conn.close()
+                    
+                    if not user or not verify_password(password, user['password_hash']):
+                        self._send_json_response({"error": "Credenciales incorrectas"}, 401)
+                        return
+                    
+                    if not user.get('activo', True):
+                        self._send_json_response({"error": "Usuario desactivado"}, 401)
+                        return
+                    
+                    token = create_token(user)
+                    user_dict = dict(user)
+                    user_dict.pop('password_hash', None)
+                    
+                    self._send_json_response({
+                        "access_token": token,
+                        "token_type": "bearer",
+                        "user": user_dict
+                    })
+                except Exception as e:
+                    print(f"Error en login: {e}")
+                    self._send_json_response({"error": "Error al procesar login", "details": str(e)}, 500)
             
             # ===== CREAR GASTO =====
             
