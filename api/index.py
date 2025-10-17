@@ -159,6 +159,41 @@ class handler(BaseHTTPRequestHandler):
                 rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios")
                 self._send_json_response([dict(r) for r in rows])
             
+            elif path == '/roles':
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                roles = [
+                    {"id": "admin", "nombre": "Administrador", "permisos": ["all"]},
+                    {"id": "supervisor", "nombre": "Supervisor", "permisos": ["aprobar_gastos", "ver_reportes"]},
+                    {"id": "empleado", "nombre": "Empleado", "permisos": ["crear_gastos", "ver_mis_gastos"]},
+                    {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["ver_gastos", "exportar", "ver_reportes"]}
+                ]
+                self._send_json_response(roles)
+            
+            elif path == '/reportes/gastos':
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                rows = db_query("SELECT * FROM gastos ORDER BY fecha_creacion DESC")
+                self._send_json_response([dict(r) for r in rows])
+            
+            elif path == '/config/sistema':
+                user_token = self._verify_token()
+                if not user_token or user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                self._send_json_response({
+                    "nombre_sistema": "GrupLomi Gastos",
+                    "version": "2.0.0",
+                    "modo_mantenimiento": False
+                })
+            
             elif path == '/reportes/dashboard':
                 user_token = self._verify_token()
                 if not user_token:
@@ -357,6 +392,64 @@ class handler(BaseHTTPRequestHandler):
                 else:
                     self._send_json_response({"error": "Sin permisos"}, 403)
             
+            elif path.startswith('/usuarios/'):
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                user_id = path.split('/')[-1]
+                
+                updates = []
+                params = []
+                param_count = 1
+                
+                if 'nombre' in data:
+                    updates.append(f"nombre = ${param_count}")
+                    params.append(data['nombre'])
+                    param_count += 1
+                if 'apellidos' in data:
+                    updates.append(f"apellidos = ${param_count}")
+                    params.append(data['apellidos'])
+                    param_count += 1
+                if 'email' in data:
+                    updates.append(f"email = ${param_count}")
+                    params.append(data['email'])
+                    param_count += 1
+                if 'role' in data:
+                    updates.append(f"role = ${param_count}")
+                    params.append(data['role'])
+                    param_count += 1
+                if 'departamento' in data:
+                    updates.append(f"departamento = ${param_count}")
+                    params.append(data['departamento'])
+                    param_count += 1
+                if 'telefono' in data:
+                    updates.append(f"telefono = ${param_count}")
+                    params.append(data['telefono'])
+                    param_count += 1
+                if 'activo' in data:
+                    updates.append(f"activo = ${param_count}")
+                    params.append(data['activo'])
+                    param_count += 1
+                
+                if updates:
+                    params.append(user_id)
+                    query = f"UPDATE usuarios SET {', '.join(updates)} WHERE id = ${param_count} RETURNING id, email, nombre, apellidos, role, departamento, telefono, activo"
+                    updated_rows = db_query(query, params)
+                    if updated_rows:
+                        self._send_json_response(dict(updated_rows[0]))
+                    else:
+                        self._send_json_response({"error": "Error al actualizar"}, 500)
+                else:
+                    self._send_json_response({"error": "No hay datos para actualizar"}, 400)
+            
+            elif path == '/config/gastos':
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                self._send_json_response({"message": "Configuración guardada correctamente"})
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
@@ -397,7 +490,3 @@ class handler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"Error en DELETE: {e}")
             self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
-
-
-
-
