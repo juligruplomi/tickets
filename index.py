@@ -1,450 +1,451 @@
-"""
-Backend FastAPI para Sistema de Gastos GrupLomi - Versión Vercel
-==================================================================
-IMPORTANTE: Esta versión NO tiene eventos de startup.
-Usa init_db.py externamente para inicializar la base de datos.
-"""
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
-from pydantic import BaseModel, Field
-from datetime import datetime, timedelta
-from typing import Optional, List
+from http.server import BaseHTTPRequestHandler
+import json
+import urllib.parse
+import hashlib
+import datetime
+import os
+from typing import Dict, Any, Optional
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import jwt
 import bcrypt
-import os
 
-# Configuración de la base de datos - ACTUALIZADA CON BASE DE DATOS EXTERNA
+# Configuración de base de datos externa
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://gruplomi_user:GrupLomi2024#Secure!@185.194.59.40:5432/gruplomi_tickets")
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "GrupLomi_JWT_Secret_Key_2024_Very_Secure_Hash")
-ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+ALGORITHM = "HS256"
+TOKEN_EXPIRE_HOURS = 24
 
-# Configuración SQLAlchemy
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# Inicializar FastAPI
-app = FastAPI(
-    title="GrupLomi Gastos API",
-    description="API para gestión de gastos de empresa - Vercel",
-    version="1.0.0"
-)
-
-# Configuración CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # En producción, especificar dominios exactos
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ==================== MODELOS DE BASE DE DATOS ====================
-
-class User(Base):
-    __tablename__ = "usuarios"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    password_hash = Column(String, nullable=False)
-    nombre = Column(String, nullable=False)
-    apellidos = Column(String)
-    role = Column(String, default="empleado")
-    departamento = Column(String)
-    telefono = Column(String)
-    direccion = Column(String)
-    fecha_nacimiento = Column(String)
-    fecha_contratacion = Column(String)
-    foto_url = Column(String)
-    supervisor_id = Column(Integer, ForeignKey("usuarios.id"))
-    activo = Column(Boolean, default=True)
-    fecha_creacion = Column(DateTime, default=datetime.utcnow)
-    
-    gastos = relationship("Gasto", back_populates="usuario", foreign_keys="Gasto.creado_por")
-    gastos_supervisados = relationship("Gasto", back_populates="supervisor", foreign_keys="Gasto.supervisor_asignado")
-
-class Gasto(Base):
-    __tablename__ = "gastos"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    tipo_gasto = Column(String, nullable=False)
-    descripcion = Column(Text)
-    obra = Column(String)
-    importe = Column(Float, nullable=False)
-    fecha_gasto = Column(String, nullable=False)
-    estado = Column(String, default="pendiente")
-    creado_por = Column(Integer, ForeignKey("usuarios.id"))
-    supervisor_asignado = Column(Integer, ForeignKey("usuarios.id"))
-    fecha_creacion = Column(DateTime, default=datetime.utcnow)
-    fecha_aprobacion = Column(DateTime)
-    aprobado_por = Column(Integer)
-    archivos_adjuntos = Column(Text)
-    kilometros = Column(Float)
-    precio_km = Column(Float)
-    comentarios = Column(Text)
-    
-    usuario = relationship("User", back_populates="gastos", foreign_keys=[creado_por])
-    supervisor = relationship("User", back_populates="gastos_supervisados", foreign_keys=[supervisor_asignado])
-
-class ConfigSistema(Base):
-    __tablename__ = "config_sistema"
-    
-    id = Column(Integer, primary_key=True)
-    clave = Column(String, unique=True, nullable=False)
-    valor = Column(Text)
-    descripcion = Column(String)
-    fecha_modificacion = Column(DateTime, default=datetime.utcnow)
-
-# NO crear tablas automáticamente en Vercel
-# Base.metadata.create_all(bind=engine)  # ❌ COMENTADO para Vercel
-
-# ==================== MODELOS PYDANTIC ====================
-
-class UserLogin(BaseModel):
-    email: str
-    password: str
-
-class UserCreate(BaseModel):
-    email: str
-    password: str
-    nombre: str
-    apellidos: Optional[str] = None
-    role: str = "empleado"
-    departamento: Optional[str] = None
-    telefono: Optional[str] = None
-    supervisor_id: Optional[int] = None
-
-class UserResponse(BaseModel):
-    id: int
-    email: str
-    nombre: str
-    apellidos: Optional[str]
-    role: str
-    departamento: Optional[str]
-    telefono: Optional[str]
-    activo: bool
-    
-    class Config:
-        from_attributes = True
-
-class GastoCreate(BaseModel):
-    tipo_gasto: str
-    descripcion: str
-    obra: Optional[str] = None
-    importe: float
-    fecha_gasto: str
-    kilometros: Optional[float] = None
-    precio_km: Optional[float] = None
-    archivos_adjuntos: Optional[str] = None
-
-class GastoUpdate(BaseModel):
-    estado: Optional[str] = None
-    comentarios: Optional[str] = None
-    supervisor_asignado: Optional[int] = None
-
-class GastoResponse(BaseModel):
-    id: int
-    tipo_gasto: str
-    descripcion: str
-    obra: Optional[str]
-    importe: float
-    fecha_gasto: str
-    estado: str
-    creado_por: int
-    supervisor_asignado: Optional[int]
-    fecha_creacion: datetime
-    kilometros: Optional[float]
-    precio_km: Optional[float]
-    comentarios: Optional[str]
-    
-    class Config:
-        from_attributes = True
-
-# ==================== UTILIDADES ====================
-
-security = HTTPBearer()
-
-def get_db():
-    db = SessionLocal()
+def get_db_connection():
+    """Conectar a PostgreSQL"""
     try:
-        yield db
-    finally:
-        db.close()
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        print(f"Error conectando a BD: {e}")
+        return None
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except:
+        return False
 
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+def create_token(user_data: Dict) -> str:
+    payload = {
+        'user_id': user_data['id'],
+        'email': user_data['email'],
+        'role': user_data['role'],
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=TOKEN_EXPIRE_HOURS)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
+def verify_token(token: str) -> Optional[Dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expirado")
-    except jwt.JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido")
+    except:
+        return None
 
-def get_current_user(db: Session = Depends(get_db), token_data = Depends(verify_token)):
-    user = db.query(User).filter(User.id == token_data["user_id"]).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return user
-
-def check_admin(current_user: User = Depends(get_current_user)):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="No tienes permisos de administrador")
-    return current_user
-
-def check_supervisor(current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["admin", "supervisor"]:
-        raise HTTPException(status_code=403, detail="No tienes permisos de supervisor")
-    return current_user
-
-# ==================== ENDPOINTS ====================
-
-@app.get("/")
-def read_root():
-    return {
-        "message": "API de Gastos GrupLomi v1.0 - Vercel",
-        "status": "online",
-        "version": "1.0.0"
-    }
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "timestamp": datetime.utcnow()}
-
-# === AUTENTICACIÓN ===
-
-@app.post("/auth/login")
-def login(user_login: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == user_login.email).first()
-    if not user or not verify_password(user_login.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+class GrupLomiAPI(BaseHTTPRequestHandler):
     
-    if not user.activo:
-        raise HTTPException(status_code=401, detail="Usuario desactivado")
-    
-    access_token = create_access_token({"user_id": user.id, "email": user.email, "role": user.role})
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "nombre": user.nombre,
-            "apellidos": user.apellidos,
-            "role": user.role,
-            "departamento": user.departamento
-        }
-    }
+    def _set_cors_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        
+    def _send_json_response(self, data: Any, status_code: int = 200):
+        self.send_response(status_code)
+        self.send_header('Content-Type', 'application/json')
+        self._set_cors_headers()
+        self.end_headers()
+        self.wfile.write(json.dumps(data, indent=2, default=str).encode('utf-8'))
+        
+    def _get_request_data(self) -> Dict:
+        try:
+            content_length = int(self.headers.get('content-length', 0))
+            if content_length > 0:
+                body = self.rfile.read(content_length)
+                return json.loads(body.decode('utf-8'))
+            return {}
+        except:
+            return {}
+            
+    def _verify_token(self) -> Optional[Dict]:
+        try:
+            auth_header = self.headers.get('Authorization', '')
+            if not auth_header.startswith('Bearer '):
+                return None
+            token = auth_header.split(' ')[1]
+            return verify_token(token)
+        except:
+            return None
 
-@app.get("/auth/me")
-def get_me(current_user: User = Depends(get_current_user)):
-    return UserResponse.from_orm(current_user)
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self._set_cors_headers()
+        self.end_headers()
 
-# === USUARIOS ===
+    def do_GET(self):
+        try:
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path
+            query_params = urllib.parse.parse_qs(parsed_path.query)
+            
+            # ===== ENDPOINTS PRINCIPALES =====
+            
+            if path == '/' or path == '/api':
+                self._send_json_response({
+                    "message": "API de Gastos GrupLomi v2.0 - PostgreSQL",
+                    "status": "online",
+                    "version": "2.0.0",
+                    "database": "PostgreSQL Externo"
+                })
+                
+            elif path == '/health':
+                conn = get_db_connection()
+                if conn:
+                    conn.close()
+                    self._send_json_response({"status": "healthy", "database": "connected"})
+                else:
+                    self._send_json_response({"status": "unhealthy", "database": "disconnected"}, 500)
+                
+            # ===== AUTENTICACIÓN =====
+            
+            elif path == '/auth/me':
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token inválido"}, 401)
+                    return
+                
+                conn = get_db_connection()
+                if not conn:
+                    self._send_json_response({"error": "Error de conexión"}, 500)
+                    return
+                
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute("SELECT * FROM usuarios WHERE id = %s", (user_token['user_id'],))
+                user = cur.fetchone()
+                cur.close()
+                conn.close()
+                
+                if user:
+                    user_dict = dict(user)
+                    user_dict.pop('password_hash', None)
+                    self._send_json_response(user_dict)
+                else:
+                    self._send_json_response({"error": "Usuario no encontrado"}, 404)
+            
+            # ===== GASTOS =====
+            
+            elif path == '/gastos':
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                conn = get_db_connection()
+                if not conn:
+                    self._send_json_response({"error": "Error de conexión"}, 500)
+                    return
+                
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                
+                # Filtrar gastos según rol
+                if user_token['role'] == 'empleado':
+                    cur.execute("SELECT * FROM gastos WHERE creado_por = %s ORDER BY fecha_creacion DESC", 
+                              (user_token['user_id'],))
+                elif user_token['role'] == 'supervisor':
+                    cur.execute("SELECT * FROM gastos WHERE creado_por = %s OR supervisor_asignado = %s ORDER BY fecha_creacion DESC", 
+                              (user_token['user_id'], user_token['user_id']))
+                else:
+                    cur.execute("SELECT * FROM gastos ORDER BY fecha_creacion DESC")
+                
+                gastos = cur.fetchall()
+                cur.close()
+                conn.close()
+                
+                self._send_json_response([dict(g) for g in gastos])
+            
+            # ===== USUARIOS =====
+            
+            elif path == '/usuarios':
+                user_token = self._verify_token()
+                if not user_token or user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                conn = get_db_connection()
+                if not conn:
+                    self._send_json_response({"error": "Error de conexión"}, 500)
+                    return
+                
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios")
+                usuarios = cur.fetchall()
+                cur.close()
+                conn.close()
+                
+                self._send_json_response([dict(u) for u in usuarios])
+            
+            # ===== DASHBOARD =====
+            
+            elif path == '/reportes/dashboard':
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                conn = get_db_connection()
+                if not conn:
+                    self._send_json_response({"error": "Error de conexión"}, 500)
+                    return
+                
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                
+                # Estadísticas básicas
+                cur.execute("SELECT COUNT(*) as total FROM gastos")
+                total_gastos = cur.fetchone()['total']
+                
+                cur.execute("SELECT SUM(importe) as total FROM gastos")
+                total_importe = cur.fetchone()['total'] or 0
+                
+                cur.execute("SELECT COUNT(*) as total FROM gastos WHERE estado = 'pendiente'")
+                pendientes = cur.fetchone()['total']
+                
+                cur.execute("SELECT COUNT(*) as total FROM gastos WHERE estado = 'aprobado'")
+                aprobados = cur.fetchone()['total']
+                
+                cur.close()
+                conn.close()
+                
+                self._send_json_response({
+                    "total_gastos": total_gastos,
+                    "total_importe": float(total_importe),
+                    "pendientes": pendientes,
+                    "aprobados": aprobados
+                })
+            
+            # ===== CONFIGURACIÓN =====
+            
+            elif path == '/config':
+                self._send_json_response({
+                    "empresa": {
+                        "nombre": "GrupLomi",
+                        "logo_url": "/logo.png",
+                        "colores": {
+                            "primario": "#0066CC",
+                            "secundario": "#f8f9fa"
+                        }
+                    },
+                    "gastos": {
+                        "tipos_gasto": [
+                            {"id": "dieta", "nombre": "Dietas"},
+                            {"id": "gasolina", "nombre": "Combustible"},
+                            {"id": "aparcamiento", "nombre": "Aparcamiento"},
+                            {"id": "otros", "nombre": "Otros"}
+                        ]
+                    }
+                })
+            
+            else:
+                self._send_json_response({"error": "Endpoint no encontrado"}, 404)
+                
+        except Exception as e:
+            print(f"Error en GET: {e}")
+            self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
-@app.get("/usuarios", response_model=List[UserResponse])
-def get_usuarios(
-    skip: int = 0, 
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(check_admin)
-):
-    usuarios = db.query(User).offset(skip).limit(limit).all()
-    return usuarios
+    def do_POST(self):
+        try:
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path
+            data = self._get_request_data()
+            
+            # ===== LOGIN =====
+            
+            if path == '/auth/login':
+                email = data.get('email') or data.get('username')
+                password = data.get('password')
+                
+                if not email or not password:
+                    self._send_json_response({"error": "Email y contraseña requeridos"}, 400)
+                    return
+                
+                conn = get_db_connection()
+                if not conn:
+                    self._send_json_response({"error": "Error de conexión a la base de datos"}, 500)
+                    return
+                
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
+                user = cur.fetchone()
+                cur.close()
+                conn.close()
+                
+                if not user or not verify_password(password, user['password_hash']):
+                    self._send_json_response({"error": "Credenciales incorrectas"}, 401)
+                    return
+                
+                if not user.get('activo', True):
+                    self._send_json_response({"error": "Usuario desactivado"}, 401)
+                    return
+                
+                token = create_token(user)
+                user_dict = dict(user)
+                user_dict.pop('password_hash', None)
+                
+                self._send_json_response({
+                    "access_token": token,
+                    "token_type": "bearer",
+                    "user": user_dict
+                })
+            
+            # ===== CREAR GASTO =====
+            
+            elif path == '/gastos':
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                conn = get_db_connection()
+                if not conn:
+                    self._send_json_response({"error": "Error de conexión"}, 500)
+                    return
+                
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute("""
+                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'pendiente')
+                    RETURNING *
+                """, (
+                    data.get('tipo_gasto'),
+                    data.get('descripcion'),
+                    data.get('obra'),
+                    data.get('importe'),
+                    data.get('fecha_gasto'),
+                    user_token['user_id']
+                ))
+                gasto = cur.fetchone()
+                conn.commit()
+                cur.close()
+                conn.close()
+                
+                self._send_json_response(dict(gasto), 201)
+            
+            else:
+                self._send_json_response({"error": "Endpoint no encontrado"}, 404)
+                
+        except Exception as e:
+            print(f"Error en POST: {e}")
+            self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
-@app.post("/usuarios", response_model=UserResponse)
-def create_usuario(
-    user: UserCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(check_admin)
-):
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email ya registrado")
-    
-    db_user = User(
-        email=user.email,
-        password_hash=hash_password(user.password),
-        nombre=user.nombre,
-        apellidos=user.apellidos,
-        role=user.role,
-        departamento=user.departamento,
-        telefono=user.telefono,
-        supervisor_id=user.supervisor_id
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+    def do_PUT(self):
+        try:
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path
+            data = self._get_request_data()
+            
+            user_token = self._verify_token()
+            if not user_token:
+                self._send_json_response({"error": "Token requerido"}, 401)
+                return
+            
+            # ===== ACTUALIZAR GASTO =====
+            
+            if path.startswith('/gastos/'):
+                gasto_id = path.split('/')[-1]
+                
+                conn = get_db_connection()
+                if not conn:
+                    self._send_json_response({"error": "Error de conexión"}, 500)
+                    return
+                
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                
+                # Verificar permisos
+                cur.execute("SELECT * FROM gastos WHERE id = %s", (gasto_id,))
+                gasto = cur.fetchone()
+                
+                if not gasto:
+                    cur.close()
+                    conn.close()
+                    self._send_json_response({"error": "Gasto no encontrado"}, 404)
+                    return
+                
+                # Actualizar estado si tiene permisos
+                if data.get('estado') and user_token['role'] in ['admin', 'supervisor']:
+                    cur.execute("UPDATE gastos SET estado = %s WHERE id = %s RETURNING *", 
+                              (data['estado'], gasto_id))
+                    gasto_actualizado = cur.fetchone()
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                    self._send_json_response(dict(gasto_actualizado))
+                else:
+                    cur.close()
+                    conn.close()
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+            
+            else:
+                self._send_json_response({"error": "Endpoint no encontrado"}, 404)
+                
+        except Exception as e:
+            print(f"Error en PUT: {e}")
+            self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
-@app.put("/usuarios/{user_id}")
-def update_usuario(
-    user_id: int,
-    updates: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(check_admin)
-):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    allowed_fields = ["nombre", "apellidos", "departamento", "telefono", "role", "activo", "supervisor_id"]
-    for field, value in updates.items():
-        if field in allowed_fields:
-            setattr(user, field, value)
-    
-    db.commit()
-    db.refresh(user)
-    return UserResponse.from_orm(user)
+    def do_DELETE(self):
+        try:
+            parsed_path = urllib.parse.urlparse(self.path)
+            path = parsed_path.path
+            
+            user_token = self._verify_token()
+            if not user_token:
+                self._send_json_response({"error": "Token requerido"}, 401)
+                return
+            
+            # ===== ELIMINAR GASTO =====
+            
+            if path.startswith('/gastos/'):
+                gasto_id = path.split('/')[-1]
+                
+                conn = get_db_connection()
+                if not conn:
+                    self._send_json_response({"error": "Error de conexión"}, 500)
+                    return
+                
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute("SELECT * FROM gastos WHERE id = %s", (gasto_id,))
+                gasto = cur.fetchone()
+                
+                if not gasto:
+                    cur.close()
+                    conn.close()
+                    self._send_json_response({"error": "Gasto no encontrado"}, 404)
+                    return
+                
+                # Solo admin o creador pueden eliminar
+                if user_token['role'] != 'admin' and gasto['creado_por'] != user_token['user_id']:
+                    cur.close()
+                    conn.close()
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                cur.execute("DELETE FROM gastos WHERE id = %s", (gasto_id,))
+                conn.commit()
+                cur.close()
+                conn.close()
+                
+                self._send_json_response({"message": "Gasto eliminado correctamente"})
+            
+            else:
+                self._send_json_response({"error": "Endpoint no encontrado"}, 404)
+                
+        except Exception as e:
+            print(f"Error en DELETE: {e}")
+            self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
-@app.delete("/usuarios/{user_id}")
-def delete_usuario(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(check_admin)
-):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    user.activo = False
-    db.commit()
-    return {"message": "Usuario desactivado correctamente"}
-
-# === GASTOS ===
-
-@app.get("/gastos", response_model=List[GastoResponse])
-def get_gastos(
-    skip: int = 0,
-    limit: int = 100,
-    estado: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    query = db.query(Gasto)
-    
-    if current_user.role == "empleado":
-        query = query.filter(Gasto.creado_por == current_user.id)
-    elif current_user.role == "supervisor":
-        query = query.filter(
-            (Gasto.creado_por == current_user.id) | 
-            (Gasto.supervisor_asignado == current_user.id)
-        )
-    
-    if estado:
-        query = query.filter(Gasto.estado == estado)
-    
-    gastos = query.offset(skip).limit(limit).all()
-    return gastos
-
-@app.post("/gastos", response_model=GastoResponse)
-def create_gasto(
-    gasto: GastoCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    supervisor_id = current_user.supervisor_id
-    
-    db_gasto = Gasto(
-        tipo_gasto=gasto.tipo_gasto,
-        descripcion=gasto.descripcion,
-        obra=gasto.obra,
-        importe=gasto.importe,
-        fecha_gasto=gasto.fecha_gasto,
-        creado_por=current_user.id,
-        supervisor_asignado=supervisor_id,
-        kilometros=gasto.kilometros,
-        precio_km=gasto.precio_km,
-        archivos_adjuntos=gasto.archivos_adjuntos
-    )
-    db.add(db_gasto)
-    db.commit()
-    db.refresh(db_gasto)
-    return db_gasto
-
-@app.put("/gastos/{gasto_id}")
-def update_gasto(
-    gasto_id: int,
-    updates: GastoUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
-    if not gasto:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado")
-    
-    if current_user.role == "empleado" and gasto.creado_por != current_user.id:
-        raise HTTPException(status_code=403, detail="No tienes permisos para modificar este gasto")
-    
-    if updates.estado and current_user.role in ["supervisor", "admin", "contabilidad"]:
-        gasto.estado = updates.estado
-        if updates.estado == "aprobado":
-            gasto.fecha_aprobacion = datetime.utcnow()
-            gasto.aprobado_por = current_user.id
-    
-    if updates.comentarios:
-        gasto.comentarios = updates.comentarios
-    
-    if updates.supervisor_asignado and current_user.role == "admin":
-        gasto.supervisor_asignado = updates.supervisor_asignado
-    
-    db.commit()
-    db.refresh(gasto)
-    return GastoResponse.from_orm(gasto)
-
-@app.delete("/gastos/{gasto_id}")
-def delete_gasto(
-    gasto_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
-    if not gasto:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado")
-    
-    if current_user.role != "admin" and gasto.creado_por != current_user.id:
-        raise HTTPException(status_code=403, detail="No tienes permisos para eliminar este gasto")
-    
-    if gasto.estado != "pendiente":
-        raise HTTPException(status_code=400, detail="Solo se pueden eliminar gastos pendientes")
-    
-    db.delete(gasto)
-    db.commit()
-    return {"message": "Gasto eliminado correctamente"}
-
-# === CONFIGURACIÓN ===
-
-@app.get("/config/admin")
-def get_admin_config(current_user: User = Depends(check_admin)):
-    return {
-        "message": "Configuración de administrador",
-        "user_role": current_user.role,
-        "permissions": ["all"]
-    }
-
-@app.get("/config/sistema")
-def get_system_config(db: Session = Depends(get_db)):
-    configs = db.query(ConfigSistema).all()
-    return {config.clave: config.valor for config in configs}
-
-# Handler para Vercel
-handler = app
+handler = GrupLomiAPI

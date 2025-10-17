@@ -1,19 +1,9 @@
-# FastAPI y dependencias core
-fastapi==0.104.1
-uvicorn==0.24.0
-python-multipart==0.0.6
+# Servidor HTTP
+# No se necesita FastAPI ni uvicorn
 
-# Base de datos
-sqlalchemy==2.0.23
+# Base de datos PostgreSQL
 psycopg2-binary==2.9.9
 
-# Autenticación y seguridad
+# Autenticación
 pyjwt==2.8.0
 bcrypt==4.1.1
-
-# HTTP requests
-requests==2.31.0
-
-# Utilidades
-pydantic==2.5.0
-email-validator==2.1.0
