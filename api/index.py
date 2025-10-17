@@ -56,7 +56,7 @@ def verify_token(token: str) -> Optional[Dict]:
     except:
         return None
 
-class GrupLomiAPI(BaseHTTPRequestHandler):
+class handler(BaseHTTPRequestHandler):
     
     def _set_cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -100,7 +100,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
             parsed_path = urllib.parse.urlparse(self.path)
             path = parsed_path.path
             
-            # ===== ROOT =====
             if path == '/' or path == '/api':
                 self._send_json_response({
                     "message": "API de Gastos GrupLomi v2.0 - Proxy HTTP",
@@ -109,7 +108,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     "database": "PostgreSQL via Proxy"
                 })
                 
-            # ===== HEALTH =====
             elif path == '/health':
                 try:
                     response = requests.get(f"{PROXY_URL}/health", timeout=5)
@@ -123,7 +121,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     "timestamp": datetime.datetime.utcnow().isoformat()
                 })
                 
-            # ===== AUTH/ME =====
             elif path == '/auth/me':
                 user_token = self._verify_token()
                 if not user_token:
@@ -138,14 +135,12 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 else:
                     self._send_json_response({"error": "Usuario no encontrado"}, 404)
             
-            # ===== GASTOS =====
             elif path == '/gastos':
                 user_token = self._verify_token()
                 if not user_token:
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                # Filtrar gastos según rol
                 if user_token['role'] == 'empleado':
                     rows = db_query("SELECT * FROM gastos WHERE creado_por = $1 ORDER BY fecha_creacion DESC", [user_token['user_id']])
                 elif user_token['role'] == 'supervisor':
@@ -155,7 +150,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
                 self._send_json_response([dict(r) for r in rows])
             
-            # ===== USUARIOS =====
             elif path == '/usuarios':
                 user_token = self._verify_token()
                 if not user_token or user_token['role'] != 'admin':
@@ -165,7 +159,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios")
                 self._send_json_response([dict(r) for r in rows])
             
-            # ===== DASHBOARD =====
             elif path == '/reportes/dashboard':
                 user_token = self._verify_token()
                 if not user_token:
@@ -184,14 +177,31 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 aprobados_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE estado = $1", ['aprobado'])
                 aprobados = aprobados_rows[0]['total'] if aprobados_rows else 0
                 
+                dietas_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['dieta'])
+                dietas = dietas_rows[0]['total'] if dietas_rows else 0
+                
+                aparcamiento_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['aparcamiento'])
+                aparcamiento = aparcamiento_rows[0]['total'] if aparcamiento_rows else 0
+                
+                gasolina_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['gasolina'])
+                gasolina = gasolina_rows[0]['total'] if gasolina_rows else 0
+                
+                otros_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto NOT IN ($1, $2, $3)", ['dieta', 'aparcamiento', 'gasolina'])
+                otros = otros_rows[0]['total'] if otros_rows else 0
+                
                 self._send_json_response({
                     "total_gastos": total_gastos,
                     "total_importe": total_importe,
                     "pendientes": pendientes,
-                    "aprobados": aprobados
+                    "aprobados": aprobados,
+                    "por_tipo": {
+                        "dietas": dietas,
+                        "aparcamiento": aparcamiento,
+                        "gasolina": gasolina,
+                        "otros": otros
+                    }
                 })
             
-            # ===== CONFIG =====
             elif path == '/config':
                 self._send_json_response({
                     "modo_oscuro": False,
@@ -249,7 +259,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
             path = parsed_path.path
             data = self._get_request_data()
             
-            # ===== LOGIN =====
             if path == '/auth/login':
                 email = data.get('email') or data.get('username')
                 password = data.get('password')
@@ -283,7 +292,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     "user": user
                 })
             
-            # ===== CREAR GASTO =====
             elif path == '/gastos':
                 user_token = self._verify_token()
                 if not user_token:
@@ -326,11 +334,9 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 self._send_json_response({"error": "Token requerido"}, 401)
                 return
             
-            # ===== ACTUALIZAR GASTO =====
             if path.startswith('/gastos/'):
                 gasto_id = path.split('/')[-1]
                 
-                # Verificar que existe
                 gasto_rows = db_query("SELECT * FROM gastos WHERE id = $1", [gasto_id])
                 if not gasto_rows:
                     self._send_json_response({"error": "Gasto no encontrado"}, 404)
@@ -338,12 +344,10 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
                 gasto = dict(gasto_rows[0])
                 
-                # Verificar permisos
                 if user_token['role'] == 'empleado' and gasto['creado_por'] != user_token['user_id']:
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                # Actualizar estado
                 if data.get('estado') and user_token['role'] in ['admin', 'supervisor']:
                     updated_rows = db_query("UPDATE gastos SET estado = $1 WHERE id = $2 RETURNING *", [data['estado'], gasto_id])
                     if updated_rows:
@@ -370,7 +374,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 self._send_json_response({"error": "Token requerido"}, 401)
                 return
             
-            # ===== ELIMINAR GASTO =====
             if path.startswith('/gastos/'):
                 gasto_id = path.split('/')[-1]
                 
@@ -381,7 +384,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
                 gasto = dict(gasto_rows[0])
                 
-                # Verificar permisos
                 if user_token['role'] != 'admin' and gasto['creado_por'] != user_token['user_id']:
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
@@ -394,30 +396,8 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
         except Exception as e:
             print(f"Error en DELETE: {e}")
-            # Gastos por tipo
-dietas_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['dieta'])
-dietas = dietas_rows[0]['total'] if dietas_rows else 0
+            self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
-aparcamiento_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['aparcamiento'])
-aparcamiento = aparcamiento_rows[0]['total'] if aparcamiento_rows else 0
 
-gasolina_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['gasolina'])
-gasolina = gasolina_rows[0]['total'] if gasolina_rows else 0
 
-otros_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto NOT IN ($1, $2, $3)", ['dieta', 'aparcamiento', 'gasolina'])
-otros = otros_rows[0]['total'] if otros_rows else 0
 
-self._send_json_response({
-    "total_gastos": total_gastos,
-    "total_importe": total_importe,
-    "pendientes": pendientes,
-    "aprobados": aprobados,
-    "por_tipo": {
-        "dietas": dietas,
-        "aparcamiento": aparcamiento,
-        "gasolina": gasolina,
-        "otros": otros
-    }
-})
-
-handler = GrupLomiAPI
