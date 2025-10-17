@@ -11,11 +11,5 @@
       "src": "/(.*)",
       "dest": "api/index.py"
     }
-  ],
-  "env": {
-    "DATABASE_URL": "@database-url",
-    "JWT_SECRET_KEY": "@jwt-secret-key",
-    "JWT_ALGORITHM": "@jwt-algorithm",
-    "JWT_ACCESS_TOKEN_EXPIRE_MINUTES": "@jwt-access-token-expire-minutes"
-  }
+  ]
 }
