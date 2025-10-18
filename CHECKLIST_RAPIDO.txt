@@ -1,0 +1,27 @@
+┌─────────────────────────────────────────────────────────┐
+│                                                         │
+│              ✅ CHECKLIST RÁPIDO                        │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+
+☐ 1. Abrir C:\Tickets en el Explorador de Windows
+      (Ya debe estar abierto)
+
+☐ 2. Doble clic en: EJECUTAR_PUSH.bat
+
+☐ 3. Presionar ENTER cuando lo pida
+
+☐ 4. Esperar a ver "PUSH EXITOSO"
+
+☐ 5. Ir a https://vercel.com/juligruplomis-projects/tickets
+      y verificar que el deployment esté en "Ready"
+
+☐ 6. Probar el frontend: https://tickets.gruplomi.com
+
+☐ 7. ¡Listo! El error debe haber desaparecido
+
+┌─────────────────────────────────────────────────────────┐
+│  TIEMPO ESTIMADO: 2-3 minutos                          │
+└─────────────────────────────────────────────────────────┘
+
+Si algo falla, lee: RESUMEN_FINAL.txt

@@ -1,0 +1,95 @@
+═══════════════════════════════════════════════════════════════
+   INSTRUCCIONES MANUALES SIMPLES - EJECUTA ESTOS COMANDOS
+═══════════════════════════════════════════════════════════════
+
+Ya que las herramientas automáticas tienen problemas, 
+ejecuta estos comandos MANUALMENTE:
+
+OPCIÓN 1: Desde el Explorador de Windows
+═══════════════════════════════════════════════════════════════
+1. Abre la carpeta: C:\Tickets
+2. Haz clic derecho en un espacio vacío
+3. Selecciona "Abrir en Terminal" o "Git Bash Here"
+4. Copia y pega ESTOS comandos UNO POR UNO:
+
+   git add vercel.json
+   
+   git commit -m "Fix: Remove secret references from vercel.json"
+   
+   git push origin main
+
+OPCIÓN 2: Desde CMD
+═══════════════════════════════════════════════════════════════
+1. Presiona Win + R
+2. Escribe: cmd
+3. Presiona ENTER
+4. Copia y pega ESTOS comandos UNO POR UNO:
+
+   cd C:\Tickets
+   
+   git add vercel.json
+   
+   git commit -m "Fix: Remove secret references from vercel.json"
+   
+   git push origin main
+
+OPCIÓN 3: Desde PowerShell
+═══════════════════════════════════════════════════════════════
+1. Presiona Win + X
+2. Selecciona "Windows PowerShell" o "Terminal"
+3. Copia y pega ESTOS comandos UNO POR UNO:
+
+   cd C:\Tickets
+   
+   git add vercel.json
+   
+   git commit -m "Fix: Remove secret references from vercel.json"
+   
+   git push origin main
+
+QUÉ ESPERAR
+═══════════════════════════════════════════════════════════════
+
+Después de "git add vercel.json":
+  → No debe mostrar nada (es normal)
+
+Después de "git commit":
+  → Debe decir: "[main xxxxxxx] Fix: Remove secret..."
+  → O: "nothing to commit, working tree clean" (ya está hecho)
+
+Después de "git push":
+  → Debe decir: "Writing objects: 100%"
+  → Y: "branch main -> branch main"
+  → O pedir credenciales de GitHub
+
+SI PIDE CREDENCIALES
+═══════════════════════════════════════════════════════════════
+Si Git pide usuario y contraseña:
+  - Usuario: juligruplomi
+  - Contraseña: Tu contraseña de GitHub o Personal Access Token
+
+Si no funciona con contraseña, necesitas un Personal Access Token:
+  1. Ve a: https://github.com/settings/tokens
+  2. Crea un nuevo token con permisos de "repo"
+  3. Úsalo como contraseña
+
+VERIFICAR QUE FUNCIONÓ
+═══════════════════════════════════════════════════════════════
+
+1. Ve a: https://github.com/juligruplomi/tickets
+2. Debes ver un commit nuevo: "Fix: Remove secret references..."
+3. Ve a: https://vercel.com/juligruplomis-projects/tickets
+4. Debe haber un nuevo deployment en progreso
+5. Espera 1-2 minutos a que termine
+6. Status debe cambiar a "Ready"
+
+═══════════════════════════════════════════════════════════════
+
+IMPORTANTE: Solo necesitas ejecutar estos 3 comandos:
+  1. git add vercel.json
+  2. git commit -m "Fix: Remove secret references from vercel.json"
+  3. git push origin main
+
+¡Eso es todo! Muy simple.
+
+═══════════════════════════════════════════════════════════════

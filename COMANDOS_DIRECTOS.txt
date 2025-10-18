@@ -1,0 +1,29 @@
+═══════════════════════════════════════════════════════════════
+   INSTRUCCIONES DIRECTAS - EJECUTA ESTOS COMANDOS
+═══════════════════════════════════════════════════════════════
+
+POR FAVOR, ABRE UNA VENTANA DE CMD Y EJECUTA ESTOS 4 COMANDOS
+UNO POR UNO (copia y pega cada línea):
+
+1. cd C:\Tickets
+
+2. git add vercel.json
+
+3. git commit -m "Fix: Change vercel.json to point to index.py in root"
+
+4. git push origin main
+
+═══════════════════════════════════════════════════════════════
+
+CÓMO ABRIR CMD:
+1. Presiona: Win + R
+2. Escribe: cmd
+3. Presiona: ENTER
+4. Copia y pega los 4 comandos de arriba
+
+═══════════════════════════════════════════════════════════════
+
+DESPUÉS DEL PUSH:
+Espera 2 minutos y prueba el frontend de nuevo.
+
+═══════════════════════════════════════════════════════════════

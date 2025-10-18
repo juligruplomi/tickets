@@ -1,0 +1,40 @@
+=====================================================
+CHECKLIST: VERIFICAR VARIABLES DE ENTORNO EN VERCEL
+=====================================================
+
+URL del proyecto: https://vercel.com/juligruplomis-projects/tickets/settings/environment-variables
+
+VARIABLES REQUERIDAS:
+=====================
+
+1. DATABASE_URL
+   Valor: postgresql://gruplomi_user:GrupLomi2024#Secure!@185.194.59.40:5432/gruplomi_tickets
+   Entornos: [X] Production [X] Preview [X] Development
+
+2. JWT_SECRET_KEY
+   Valor: GrupLomi_JWT_Secret_Key_2024_Very_Secure_Hash
+   Entornos: [X] Production [X] Preview [X] Development
+
+3. JWT_ALGORITHM
+   Valor: HS256
+   Entornos: [X] Production [X] Preview [X] Development
+
+4. JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+   Valor: 30
+   Entornos: [X] Production [X] Preview [X] Development
+
+IMPORTANTE:
+===========
+- NO uses la sintaxis @secret-name en vercel.json
+- Las variables deben estar configuradas DIRECTAMENTE en el Dashboard
+- Vercel las inyectará automáticamente en tiempo de ejecución
+- Si falta alguna variable, añádela haciendo clic en "Add New"
+
+DESPUÉS DE VERIFICAR:
+=====================
+1. Si todas las variables están configuradas correctamente ✓
+2. Ejecuta el script: C:\Tickets\push_fix.bat
+3. Vercel desplegará automáticamente
+4. El error de GitHub desaparecerá
+
+=====================================================
