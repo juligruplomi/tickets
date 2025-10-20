@@ -250,7 +250,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     return
                 
                 rows = db_query("SELECT * FROM gastos ORDER BY fecha_creacion DESC")
-                self._send_json_response({"gastos": [dict(r) for r in rows], "total": len(rows)})
+                self._send_json_response([dict(r) for r in rows])
             
             elif path == '/config' or path == '/config/sistema':
                 self._send_json_response({
