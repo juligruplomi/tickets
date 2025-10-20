@@ -184,19 +184,39 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 aprobados_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE estado = $1", ['aprobado'])
                 aprobados = aprobados_rows[0]['total'] if aprobados_rows else 0
                 
+                # Gastos por tipo
+                dietas_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['dieta'])
+                dietas = dietas_rows[0]['total'] if dietas_rows else 0
+                
+                aparcamiento_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['aparcamiento'])
+                aparcamiento = aparcamiento_rows[0]['total'] if aparcamiento_rows else 0
+                
+                gasolina_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['gasolina'])
+                gasolina = gasolina_rows[0]['total'] if gasolina_rows else 0
+                
+                otros_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto NOT IN ($1, $2, $3)", ['dieta', 'aparcamiento', 'gasolina'])
+                otros = otros_rows[0]['total'] if otros_rows else 0
+                
                 self._send_json_response({
                     "total_gastos": total_gastos,
                     "total_importe": total_importe,
                     "pendientes": pendientes,
-                    "aprobados": aprobados
+                    "aprobados": aprobados,
+                    "por_tipo": {
+                        "dietas": dietas,
+                        "aparcamiento": aparcamiento,
+                        "gasolina": gasolina,
+                        "otros": otros
+                    }
                 })
             
             # ===== CONFIG =====
-            elif path == '/config':
+            elif path == '/config' or path == '/config/sistema':
                 self._send_json_response({
                     "modo_oscuro": False,
                     "idioma_principal": "es",
                     "nombre_empresa": "GrupLomi",
+                    "empresa_nombre": "GrupLomi",
                     "logo_url": "",
                     "color_primario": "#0066CC",
                     "color_secundario": "#f8f9fa",
@@ -204,6 +224,8 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     "metodos_pago": ["efectivo", "tarjeta", "transferencia"],
                     "limite_gasto_diario": 500,
                     "limite_gasto_mensual": 5000,
+                    "limite_aprobacion_supervisor": 1000,
+                    "requiere_justificante": True,
                     "categorias_gasto": [
                         {"id": "dieta", "nombre": "Dietas", "activo": True},
                         {"id": "gasolina", "nombre": "Combustible", "activo": True},
@@ -214,6 +236,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         {"id": "formacion", "nombre": "Formación", "activo": True},
                         {"id": "otros", "nombre": "Otros", "activo": True}
                     ],
+                    "categorias_gastos": ["Dietas", "Combustible", "Aparcamiento", "Alojamiento", "Transporte", "Material", "Formación", "Otros"],
                     "idiomas": {
                         "es": {"activo": True, "nombre": "Español"},
                         "en": {"activo": True, "nombre": "English"},
@@ -224,6 +247,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     },
                     "notificaciones": {
                         "email_activo": False,
+                        "email_enabled": False,
                         "smtp_host": "",
                         "smtp_port": 587,
                         "smtp_user": "",
@@ -353,6 +377,52 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 else:
                     self._send_json_response({"error": "Sin permisos"}, 403)
             
+            # ===== ACTUALIZAR CONFIG GASTOS =====
+            elif path == '/config/gastos':
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Solo admin puede modificar config"}, 403)
+                    return
+                
+                # Simulación - en producción guardaría en tabla de config
+                self._send_json_response({
+                    "message": "Configuración de gastos actualizada correctamente",
+                    "categorias": data.get('categorias', []),
+                    "limite_aprobacion_supervisor": data.get('limite_aprobacion_supervisor', 1000),
+                    "requiere_justificante": data.get('requiere_justificante', True),
+                    "campos_obligatorios": data.get('campos_obligatorios', [])
+                })
+            
+            # ===== ACTUALIZAR CONFIG NOTIFICACIONES =====
+            elif path == '/config/notificaciones':
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Solo admin puede modificar config"}, 403)
+                    return
+                
+                # Simulación - en producción guardaría en tabla de config
+                self._send_json_response({
+                    "message": "Configuración de notificaciones actualizada correctamente",
+                    "email_enabled": data.get('email_enabled', False),
+                    "notificar_nuevo_gasto": data.get('notificar_nuevo_gasto', True),
+                    "notificar_aprobacion": data.get('notificar_aprobacion', True),
+                    "notificar_rechazo": data.get('notificar_rechazo', True)
+                })
+            
+            # ===== ACTUALIZAR CONFIG SMTP =====
+            elif path == '/config/smtp':
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Solo admin puede modificar config"}, 403)
+                    return
+                
+                # Simulación - en producción guardaría en tabla de config de forma SEGURA
+                # NUNCA almacenar contraseñas en texto plano, usar encryption
+                self._send_json_response({
+                    "message": "Configuración SMTP actualizada correctamente",
+                    "smtp_host": data.get('smtp_host', ''),
+                    "smtp_port": data.get('smtp_port', 587),
+                    "smtp_from": data.get('smtp_from', '')
+                    # NUNCA devolver la contraseña SMTP al cliente
+                })
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
@@ -394,30 +464,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
         except Exception as e:
             print(f"Error en DELETE: {e}")
-            # Gastos por tipo
-dietas_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['dieta'])
-dietas = dietas_rows[0]['total'] if dietas_rows else 0
-
-aparcamiento_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['aparcamiento'])
-aparcamiento = aparcamiento_rows[0]['total'] if aparcamiento_rows else 0
-
-gasolina_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto = $1", ['gasolina'])
-gasolina = gasolina_rows[0]['total'] if gasolina_rows else 0
-
-otros_rows = db_query("SELECT COUNT(*) as total FROM gastos WHERE tipo_gasto NOT IN ($1, $2, $3)", ['dieta', 'aparcamiento', 'gasolina'])
-otros = otros_rows[0]['total'] if otros_rows else 0
-
-self._send_json_response({
-    "total_gastos": total_gastos,
-    "total_importe": total_importe,
-    "pendientes": pendientes,
-    "aprobados": aprobados,
-    "por_tipo": {
-        "dietas": dietas,
-        "aparcamiento": aparcamiento,
-        "gasolina": gasolina,
-        "otros": otros
-    }
-})
+            self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
 
 handler = GrupLomiAPI
