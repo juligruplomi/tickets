@@ -60,7 +60,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
     
     def _set_cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         
     def _send_json_response(self, data: Any, status_code: int = 200):
@@ -103,9 +103,9 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
             # ===== ROOT =====
             if path == '/' or path == '/api':
                 self._send_json_response({
-                    "message": "API de Gastos GrupLomi v2.0 - Proxy HTTP",
+                    "message": "API de Gastos GrupLomi v2.1 - Proxy HTTP",
                     "status": "online",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                     "database": "PostgreSQL via Proxy"
                 })
                 
@@ -155,6 +155,20 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
                 self._send_json_response([dict(r) for r in rows])
             
+            # ===== GASTO BY ID =====
+            elif path.startswith('/gastos/') and path.count('/') == 2:
+                gasto_id = path.split('/')[-1]
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                rows = db_query("SELECT * FROM gastos WHERE id = $1", [gasto_id])
+                if rows:
+                    self._send_json_response(dict(rows[0]))
+                else:
+                    self._send_json_response({"error": "Gasto no encontrado"}, 404)
+            
             # ===== USUARIOS =====
             elif path == '/usuarios':
                 user_token = self._verify_token()
@@ -164,6 +178,20 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
                 rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios")
                 self._send_json_response([dict(r) for r in rows])
+            
+            # ===== USUARIO BY ID =====
+            elif path.startswith('/usuarios/') and path.count('/') == 2:
+                usuario_id = path.split('/')[-1]
+                user_token = self._verify_token()
+                if not user_token or user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios WHERE id = $1", [usuario_id])
+                if rows:
+                    self._send_json_response(dict(rows[0]))
+                else:
+                    self._send_json_response({"error": "Usuario no encontrado"}, 404)
             
             # ===== DASHBOARD =====
             elif path == '/reportes/dashboard':
@@ -332,6 +360,35 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 else:
                     self._send_json_response({"error": "Error al crear gasto"}, 500)
             
+            # ===== CREAR USUARIO =====
+            elif path == '/usuarios':
+                user_token = self._verify_token()
+                if not user_token or user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                password_hash = hash_password(data.get('password', 'user123'))
+                
+                rows = db_query("""
+                    INSERT INTO usuarios (email, nombre, apellidos, role, departamento, telefono, password_hash, activo)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    RETURNING id, email, nombre, apellidos, role, departamento, telefono, activo
+                """, [
+                    data.get('email'),
+                    data.get('nombre'),
+                    data.get('apellidos'),
+                    data.get('role', 'empleado'),
+                    data.get('departamento'),
+                    data.get('telefono'),
+                    password_hash,
+                    data.get('activo', True)
+                ])
+                
+                if rows:
+                    self._send_json_response(dict(rows[0]), 201)
+                else:
+                    self._send_json_response({"error": "Error al crear usuario"}, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
@@ -351,7 +408,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 return
             
             # ===== ACTUALIZAR GASTO =====
-            if path.startswith('/gastos/'):
+            if path.startswith('/gastos/') and path.count('/') == 2:
                 gasto_id = path.split('/')[-1]
                 
                 # Verificar que existe
@@ -377,13 +434,72 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 else:
                     self._send_json_response({"error": "Sin permisos"}, 403)
             
+            # ===== ACTUALIZAR USUARIO =====
+            elif path.startswith('/usuarios/') and path.count('/') == 2:
+                usuario_id = path.split('/')[-1]
+                
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                # Construir query de actualización dinámicamente
+                update_fields = []
+                update_values = []
+                
+                if 'nombre' in data:
+                    update_fields.append("nombre = $" + str(len(update_values) + 1))
+                    update_values.append(data['nombre'])
+                
+                if 'apellidos' in data:
+                    update_fields.append("apellidos = $" + str(len(update_values) + 1))
+                    update_values.append(data['apellidos'])
+                
+                if 'email' in data:
+                    update_fields.append("email = $" + str(len(update_values) + 1))
+                    update_values.append(data['email'])
+                
+                if 'role' in data:
+                    update_fields.append("role = $" + str(len(update_values) + 1))
+                    update_values.append(data['role'])
+                
+                if 'departamento' in data:
+                    update_fields.append("departamento = $" + str(len(update_values) + 1))
+                    update_values.append(data['departamento'])
+                
+                if 'telefono' in data:
+                    update_fields.append("telefono = $" + str(len(update_values) + 1))
+                    update_values.append(data['telefono'])
+                
+                if 'activo' in data:
+                    update_fields.append("activo = $" + str(len(update_values) + 1))
+                    update_values.append(data['activo'])
+                
+                if 'password' in data and data['password']:
+                    update_fields.append("password_hash = $" + str(len(update_values) + 1))
+                    update_values.append(hash_password(data['password']))
+                
+                if not update_fields:
+                    self._send_json_response({"error": "No hay campos para actualizar"}, 400)
+                    return
+                
+                # Agregar el ID al final
+                update_values.append(usuario_id)
+                
+                query = f"UPDATE usuarios SET {', '.join(update_fields)} WHERE id = ${len(update_values)} RETURNING id, email, nombre, apellidos, role, departamento, telefono, activo"
+                
+                updated_rows = db_query(query, update_values)
+                
+                if updated_rows:
+                    self._send_json_response(dict(updated_rows[0]))
+                else:
+                    self._send_json_response({"error": "Usuario no encontrado o error al actualizar"}, 404)
+            
             # ===== ACTUALIZAR CONFIG GASTOS =====
             elif path == '/config/gastos':
                 if user_token['role'] != 'admin':
                     self._send_json_response({"error": "Solo admin puede modificar config"}, 403)
                     return
                 
-                # Simulación - en producción guardaría en tabla de config
                 self._send_json_response({
                     "message": "Configuración de gastos actualizada correctamente",
                     "categorias": data.get('categorias', []),
@@ -398,7 +514,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Solo admin puede modificar config"}, 403)
                     return
                 
-                # Simulación - en producción guardaría en tabla de config
                 self._send_json_response({
                     "message": "Configuración de notificaciones actualizada correctamente",
                     "email_enabled": data.get('email_enabled', False),
@@ -413,14 +528,11 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Solo admin puede modificar config"}, 403)
                     return
                 
-                # Simulación - en producción guardaría en tabla de config de forma SEGURA
-                # NUNCA almacenar contraseñas en texto plano, usar encryption
                 self._send_json_response({
                     "message": "Configuración SMTP actualizada correctamente",
                     "smtp_host": data.get('smtp_host', ''),
                     "smtp_port": data.get('smtp_port', 587),
                     "smtp_from": data.get('smtp_from', '')
-                    # NUNCA devolver la contraseña SMTP al cliente
                 })
             
             else:
@@ -441,7 +553,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 return
             
             # ===== ELIMINAR GASTO =====
-            if path.startswith('/gastos/'):
+            if path.startswith('/gastos/') and path.count('/') == 2:
                 gasto_id = path.split('/')[-1]
                 
                 gasto_rows = db_query("SELECT * FROM gastos WHERE id = $1", [gasto_id])
@@ -459,11 +571,37 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 db_query("DELETE FROM gastos WHERE id = $1", [gasto_id])
                 self._send_json_response({"message": "Gasto eliminado correctamente"})
             
+            # ===== ELIMINAR USUARIO =====
+            elif path.startswith('/usuarios/') and path.count('/') == 2:
+                usuario_id = path.split('/')[-1]
+                
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                # No permitir eliminar el propio usuario
+                if str(usuario_id) == str(user_token['user_id']):
+                    self._send_json_response({"error": "No puedes eliminar tu propio usuario"}, 400)
+                    return
+                
+                usuario_rows = db_query("SELECT id FROM usuarios WHERE id = $1", [usuario_id])
+                if not usuario_rows:
+                    self._send_json_response({"error": "Usuario no encontrado"}, 404)
+                    return
+                
+                db_query("DELETE FROM usuarios WHERE id = $1", [usuario_id])
+                self._send_json_response({"message": "Usuario eliminado correctamente"})
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
         except Exception as e:
             print(f"Error en DELETE: {e}")
             self._send_json_response({"error": "Error interno", "details": str(e)}, 500)
+
+    def do_PATCH(self):
+        """Manejar actualizaciones parciales (para compatibilidad)"""
+        # PATCH funciona igual que PUT en nuestra API
+        self.do_PUT()
 
 handler = GrupLomiAPI
