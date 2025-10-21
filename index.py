@@ -187,13 +187,50 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                # Devolver roles estáticos (fix temporal)
-                self._send_json_response([
-                    {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
-                    {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
-                    {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
-                    {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
-                ])
+                try:
+                    # Intentar leer desde BD sin cast (el proxy devuelve JSONB como ya parseado)
+                    rows = db_query("SELECT role, permisos FROM roles_permisos ORDER BY role")
+                    
+                    if rows and len(rows) > 0:
+                        roles = []
+                        for row in rows:
+                            # El proxy puede devolver permisos como string JSON o como lista
+                            permisos_raw = row.get('permisos', [])
+                            
+                            if isinstance(permisos_raw, str):
+                                try:
+                                    permisos = json.loads(permisos_raw)
+                                except:
+                                    permisos = []
+                            elif isinstance(permisos_raw, list):
+                                permisos = permisos_raw
+                            else:
+                                permisos = []
+                            
+                            roles.append({
+                                "id": row['role'],
+                                "nombre": row['role'].capitalize(),
+                                "permisos": permisos
+                            })
+                        
+                        self._send_json_response(roles)
+                    else:
+                        # Fallback a roles estáticos si BD vacía
+                        self._send_json_response([
+                            {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
+                            {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
+                            {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
+                            {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
+                        ])
+                except Exception as e:
+                    print(f"Error leyendo roles: {e}")
+                    # Fallback en caso de error
+                    self._send_json_response([
+                        {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
+                        {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
+                        {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
+                        {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
+                    ])
             
             elif path == '/reportes/dashboard':
                 user_token = self._verify_token()
