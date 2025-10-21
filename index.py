@@ -188,14 +188,14 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     return
                 
                 # Leer roles desde la base de datos
-                rows = db_query("SELECT role, permisos FROM roles_permisos ORDER BY role")
+                rows = db_query("SELECT role, permisos::text as permisos_text FROM roles_permisos ORDER BY role")
                 
                 roles = []
                 for row in rows:
                     roles.append({
                         "id": row['role'],
                         "nombre": row['role'].capitalize(),
-                        "permisos": row['permisos'] if isinstance(row['permisos'], list) else json.loads(row['permisos'])
+                        "permisos": json.loads(row['permisos_text']) if isinstance(row['permisos_text'], str) else row['permisos_text']
                     })
                 
                 self._send_json_response(roles)
