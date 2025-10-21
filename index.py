@@ -383,29 +383,19 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 # Guardar foto si existe
                 foto_justificante = data.get('foto_justificante') or None
                 
-                # Calcular importe para combustible si es necesario
-                importe = data.get('importe')
-                if data.get('tipo_gasto') == 'gasolina':
-                    kilometros = data.get('kilometros', 0)
-                    precio_km = data.get('precio_km', 0)
-                    if kilometros and precio_km:
-                        importe = float(kilometros) * float(precio_km)
-                
                 rows = db_query("""
-                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, foto_uploaded_at, kilometros, precio_km)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8, $9, $10)
+                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, foto_uploaded_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8)
                     RETURNING *
                 """, [
                     data.get('tipo_gasto'),
                     data.get('descripcion'),
                     data.get('obra'),
-                    importe,
+                    data.get('importe'),
                     data.get('fecha_gasto'),
                     user_token['user_id'],
                     foto_justificante,
-                    datetime.datetime.utcnow() if foto_justificante else None,
-                    data.get('kilometros') if data.get('tipo_gasto') == 'gasolina' else None,
-                    data.get('precio_km') if data.get('tipo_gasto') == 'gasolina' else None
+                    datetime.datetime.utcnow() if foto_justificante else None
                 ])
                 
                 if rows:
