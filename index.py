@@ -535,14 +535,11 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
                 permisos = data.get('permisos', [])
                 
-                # Convertir permisos a JSON string para JSONB
-                permisos_json = json.dumps(permisos)
+                # Construir query directamente con el valor JSON
+                permisos_json_str = json.dumps(permisos).replace("'", "''")
+                query = f"UPDATE roles_permisos SET permisos = '{permisos_json_str}'::jsonb, updated_at = CURRENT_TIMESTAMP WHERE role = '{role_id}' RETURNING role, permisos"
                 
-                # Usar parametrización con cast a JSONB
-                updated_rows = db_query(
-                    "UPDATE roles_permisos SET permisos = $1::jsonb, updated_at = $2 WHERE role = $3 RETURNING role, permisos",
-                    [permisos_json, datetime.datetime.utcnow(), role_id]
-                )
+                updated_rows = db_query(query, [])
                 
                 if updated_rows:
                     self._send_json_response({
