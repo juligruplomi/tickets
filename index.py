@@ -187,18 +187,13 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                # Leer roles desde la base de datos
-                rows = db_query("SELECT role, permisos::text as permisos_text FROM roles_permisos ORDER BY role")
-                
-                roles = []
-                for row in rows:
-                    roles.append({
-                        "id": row['role'],
-                        "nombre": row['role'].capitalize(),
-                        "permisos": json.loads(row['permisos_text']) if isinstance(row['permisos_text'], str) else row['permisos_text']
-                    })
-                
-                self._send_json_response(roles)
+                # Devolver roles estáticos (fix temporal)
+                self._send_json_response([
+                    {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
+                    {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
+                    {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
+                    {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
+                ])
             
             elif path == '/reportes/dashboard':
                 user_token = self._verify_token()
