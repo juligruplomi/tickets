@@ -369,15 +369,11 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                # Preparar valores opcionales (pueden ser None)
-                foto = data.get('foto_justificante') if data.get('foto_justificante') else None
-                kms = data.get('kilometros') if data.get('kilometros') else None
-                precio = data.get('precio_km') if data.get('precio_km') else None
-                
+                # TEMPORAL: Insertar solo campos básicos mientras investigamos
                 try:
                     rows = db_query("""
-                        INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, kilometros, precio_km)
-                        VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8, $9)
+                        INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
+                        VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
                         RETURNING *
                     """, [
                         data.get('tipo_gasto'),
@@ -385,19 +381,22 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         data.get('obra'),
                         data.get('importe'),
                         data.get('fecha_gasto'),
-                        user_token['user_id'],
-                        foto,
-                        kms,
-                        precio
+                        user_token['user_id']
                     ])
                     
                     if rows:
                         self._send_json_response(dict(rows[0]), 201)
                     else:
-                        self._send_json_response({"error": "Error al crear gasto"}, 500)
+                        self._send_json_response({"error": "No se pudo insertar"}, 500)
                 except Exception as e:
-                    print(f"Error creando gasto: {e}")
-                    self._send_json_response({"error": "Error al crear gasto", "details": str(e)}, 500)
+                    import traceback
+                    error_details = traceback.format_exc()
+                    print(f"Error completo: {error_details}")
+                    self._send_json_response({
+                        "error": "Error al crear gasto", 
+                        "details": str(e),
+                        "type": type(e).__name__
+                    }, 500)
             
             elif path == '/usuarios':
                 user_token = self._verify_token()
