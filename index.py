@@ -369,27 +369,35 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                # Ahora SÍ podemos insertar con foto_justificante, kilometros y precio_km
-                rows = db_query("""
-                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, kilometros, precio_km)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8, $9)
-                    RETURNING *
-                """, [
-                    data.get('tipo_gasto'),
-                    data.get('descripcion'),
-                    data.get('obra'),
-                    data.get('importe'),
-                    data.get('fecha_gasto'),
-                    user_token['user_id'],
-                    data.get('foto_justificante'),  # Base64 de la imagen
-                    data.get('kilometros'),
-                    data.get('precio_km')
-                ])
+                # Preparar valores opcionales (pueden ser None)
+                foto = data.get('foto_justificante') if data.get('foto_justificante') else None
+                kms = data.get('kilometros') if data.get('kilometros') else None
+                precio = data.get('precio_km') if data.get('precio_km') else None
                 
-                if rows:
-                    self._send_json_response(dict(rows[0]), 201)
-                else:
-                    self._send_json_response({"error": "Error al crear gasto"}, 500)
+                try:
+                    rows = db_query("""
+                        INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, kilometros, precio_km)
+                        VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8, $9)
+                        RETURNING *
+                    """, [
+                        data.get('tipo_gasto'),
+                        data.get('descripcion'),
+                        data.get('obra'),
+                        data.get('importe'),
+                        data.get('fecha_gasto'),
+                        user_token['user_id'],
+                        foto,
+                        kms,
+                        precio
+                    ])
+                    
+                    if rows:
+                        self._send_json_response(dict(rows[0]), 201)
+                    else:
+                        self._send_json_response({"error": "Error al crear gasto"}, 500)
+                except Exception as e:
+                    print(f"Error creando gasto: {e}")
+                    self._send_json_response({"error": "Error al crear gasto", "details": str(e)}, 500)
             
             elif path == '/usuarios':
                 user_token = self._verify_token()
