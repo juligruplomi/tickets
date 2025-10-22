@@ -369,10 +369,10 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                # Insertar SOLO con los campos que existen en la tabla original
+                # Ahora SÍ podemos insertar con foto_justificante, kilometros y precio_km
                 rows = db_query("""
-                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
+                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, kilometros, precio_km)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8, $9)
                     RETURNING *
                 """, [
                     data.get('tipo_gasto'),
@@ -380,7 +380,10 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     data.get('obra'),
                     data.get('importe'),
                     data.get('fecha_gasto'),
-                    user_token['user_id']
+                    user_token['user_id'],
+                    data.get('foto_justificante'),  # Base64 de la imagen
+                    data.get('kilometros'),
+                    data.get('precio_km')
                 ])
                 
                 if rows:
