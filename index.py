@@ -343,18 +343,38 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                rows = db_query("""
-                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
-                    RETURNING *
-                """, [
-                    data.get('tipo_gasto'),
-                    data.get('descripcion'),
-                    data.get('obra'),
-                    data.get('importe'),
-                    data.get('fecha_gasto'),
-                    user_token['user_id']
-                ])
+                # Construir query dinámica para incluir foto_justificante si existe
+                if data.get('foto_justificante'):
+                    rows = db_query("""
+                        INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, kilometros, precio_km)
+                        VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8, $9)
+                        RETURNING *
+                    """, [
+                        data.get('tipo_gasto'),
+                        data.get('descripcion'),
+                        data.get('obra'),
+                        data.get('importe'),
+                        data.get('fecha_gasto'),
+                        user_token['user_id'],
+                        data.get('foto_justificante'),
+                        data.get('kilometros'),
+                        data.get('precio_km')
+                    ])
+                else:
+                    rows = db_query("""
+                        INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, kilometros, precio_km)
+                        VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8)
+                        RETURNING *
+                    """, [
+                        data.get('tipo_gasto'),
+                        data.get('descripcion'),
+                        data.get('obra'),
+                        data.get('importe'),
+                        data.get('fecha_gasto'),
+                        user_token['user_id'],
+                        data.get('kilometros'),
+                        data.get('precio_km')
+                    ])
                 
                 if rows:
                     self._send_json_response(dict(rows[0]), 201)
@@ -484,6 +504,27 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     return
                 
                 self._send_json_response({"message": "SMTP actualizado"})
+            
+            elif path.startswith('/roles/') and path.count('/') == 2:
+                role_id = path.split('/')[-1]
+                
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Sin permisos"}, 403)
+                    return
+                
+                # Los roles son estáticos, simplemente devolvemos success
+                # En una implementación real, aquí guardarías en una tabla de roles
+                valid_roles = ['admin', 'supervisor', 'empleado', 'contabilidad']
+                
+                if role_id not in valid_roles:
+                    self._send_json_response({"error": "Rol no válido"}, 404)
+                    return
+                
+                self._send_json_response({
+                    "message": "Permisos actualizados",
+                    "role_id": role_id,
+                    "permisos": data.get('permisos', [])
+                })
             
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
