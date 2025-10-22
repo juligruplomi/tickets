@@ -291,6 +291,32 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     }
                 })
             
+            elif path == '/admin/migrate-db':
+                # Endpoint temporal para agregar columnas a la tabla gastos
+                user_token = self._verify_token()
+                if not user_token or user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Solo admin puede ejecutar migraciones"}, 403)
+                    return
+                
+                try:
+                    # Agregar columnas si no existen
+                    db_query("""
+                        ALTER TABLE gastos 
+                        ADD COLUMN IF NOT EXISTS foto_justificante TEXT,
+                        ADD COLUMN IF NOT EXISTS kilometros DECIMAL(10,2),
+                        ADD COLUMN IF NOT EXISTS precio_km DECIMAL(10,3)
+                    """)
+                    
+                    self._send_json_response({
+                        "success": True,
+                        "message": "Migración completada: columnas foto_justificante, kilometros, precio_km agregadas"
+                    })
+                except Exception as e:
+                    self._send_json_response({
+                        "success": False,
+                        "error": str(e)
+                    }, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
