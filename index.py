@@ -100,9 +100,9 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
             
             if path == '/' or path == '/api':
                 self._send_json_response({
-                    "message": "API GrupLomi v2.3 - Fotos en BD",
+                    "message": "API GrupLomi v2.0",
                     "status": "online",
-                    "version": "2.3.0"
+                    "version": "2.0.0"
                 })
                 
             elif path == '/health':
@@ -165,7 +165,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo, foto_perfil FROM usuarios")
+                rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios")
                 self._send_json_response([dict(r) for r in rows])
             
             elif path.startswith('/usuarios/') and path.count('/') == 2:
@@ -175,7 +175,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo, foto_perfil FROM usuarios WHERE id = $1", [usuario_id])
+                rows = db_query("SELECT id, email, nombre, apellidos, role, departamento, telefono, activo FROM usuarios WHERE id = $1", [usuario_id])
                 if rows:
                     self._send_json_response(dict(rows[0]))
                 else:
@@ -187,50 +187,13 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                try:
-                    # Intentar leer desde BD sin cast (el proxy devuelve JSONB como ya parseado)
-                    rows = db_query("SELECT role, permisos FROM roles_permisos ORDER BY role")
-                    
-                    if rows and len(rows) > 0:
-                        roles = []
-                        for row in rows:
-                            # El proxy puede devolver permisos como string JSON o como lista
-                            permisos_raw = row.get('permisos', [])
-                            
-                            if isinstance(permisos_raw, str):
-                                try:
-                                    permisos = json.loads(permisos_raw)
-                                except:
-                                    permisos = []
-                            elif isinstance(permisos_raw, list):
-                                permisos = permisos_raw
-                            else:
-                                permisos = []
-                            
-                            roles.append({
-                                "id": row['role'],
-                                "nombre": row['role'].capitalize(),
-                                "permisos": permisos
-                            })
-                        
-                        self._send_json_response(roles)
-                    else:
-                        # Fallback a roles estáticos si BD vacía
-                        self._send_json_response([
-                            {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
-                            {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
-                            {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
-                            {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
-                        ])
-                except Exception as e:
-                    print(f"Error leyendo roles: {e}")
-                    # Fallback en caso de error
-                    self._send_json_response([
-                        {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
-                        {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
-                        {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
-                        {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
-                    ])
+                # Roles estáticos
+                self._send_json_response([
+                    {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
+                    {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
+                    {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
+                    {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
+                ])
             
             elif path == '/reportes/dashboard':
                 user_token = self._verify_token()
@@ -380,12 +343,9 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                # Guardar foto si existe
-                foto_justificante = data.get('foto_justificante') or None
-                
                 rows = db_query("""
-                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, foto_uploaded_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8)
+                    INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
                     RETURNING *
                 """, [
                     data.get('tipo_gasto'),
@@ -393,9 +353,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     data.get('obra'),
                     data.get('importe'),
                     data.get('fecha_gasto'),
-                    user_token['user_id'],
-                    foto_justificante,
-                    datetime.datetime.utcnow() if foto_justificante else None
+                    user_token['user_id']
                 ])
                 
                 if rows:
@@ -410,12 +368,11 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     return
                 
                 password_hash = hash_password(data.get('password', 'user123'))
-                foto_perfil = data.get('foto_perfil') or None
                 
                 rows = db_query("""
-                    INSERT INTO usuarios (email, nombre, apellidos, role, departamento, telefono, password_hash, activo, foto_perfil, foto_updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                    RETURNING id, email, nombre, apellidos, role, departamento, telefono, activo, foto_perfil
+                    INSERT INTO usuarios (email, nombre, apellidos, role, departamento, telefono, password_hash, activo)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    RETURNING id, email, nombre, apellidos, role, departamento, telefono, activo
                 """, [
                     data.get('email'),
                     data.get('nombre'),
@@ -424,25 +381,13 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     data.get('departamento'),
                     data.get('telefono'),
                     password_hash,
-                    data.get('activo', True),
-                    foto_perfil,
-                    datetime.datetime.utcnow() if foto_perfil else None
+                    data.get('activo', True)
                 ])
                 
                 if rows:
                     self._send_json_response(dict(rows[0]), 201)
                 else:
                     self._send_json_response({"error": "Error al crear usuario"}, 500)
-            
-            # Limpiar fotos antiguas manualmente
-            elif path == '/admin/limpiar-fotos':
-                user_token = self._verify_token()
-                if not user_token or user_token['role'] != 'admin':
-                    self._send_json_response({"error": "Sin permisos"}, 403)
-                    return
-                
-                db_query("SELECT limpiar_fotos_antiguas()")
-                self._send_json_response({"message": "Fotos antiguas limpiadas correctamente"})
             
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
@@ -500,12 +445,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         update_fields.append(f"{field} = ${len(update_values) + 1}")
                         update_values.append(data[field])
                 
-                if 'foto_perfil' in data:
-                    update_fields.append(f"foto_perfil = ${len(update_values) + 1}")
-                    update_values.append(data['foto_perfil'])
-                    update_fields.append(f"foto_updated_at = ${len(update_values) + 1}")
-                    update_values.append(datetime.datetime.utcnow())
-                
                 if 'password' in data and data['password']:
                     update_fields.append(f"password_hash = ${len(update_values) + 1}")
                     update_values.append(hash_password(data['password']))
@@ -516,7 +455,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
                 update_values.append(usuario_id)
                 
-                query = f"UPDATE usuarios SET {', '.join(update_fields)} WHERE id = ${len(update_values)} RETURNING id, email, nombre, apellidos, role, departamento, telefono, activo, foto_perfil"
+                query = f"UPDATE usuarios SET {', '.join(update_fields)} WHERE id = ${len(update_values)} RETURNING id, email, nombre, apellidos, role, departamento, telefono, activo"
                 
                 updated_rows = db_query(query, update_values)
                 
@@ -524,31 +463,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response(dict(updated_rows[0]))
                 else:
                     self._send_json_response({"error": "Usuario no encontrado"}, 404)
-            
-            # Actualizar permisos de rol
-            elif path.startswith('/roles/') and path.count('/') == 2:
-                role_id = path.split('/')[-1]
-                
-                if user_token['role'] != 'admin':
-                    self._send_json_response({"error": "Solo admin"}, 403)
-                    return
-                
-                permisos = data.get('permisos', [])
-                
-                # Construir query directamente con el valor JSON
-                permisos_json_str = json.dumps(permisos).replace("'", "''")
-                query = f"UPDATE roles_permisos SET permisos = '{permisos_json_str}'::jsonb, updated_at = CURRENT_TIMESTAMP WHERE role = '{role_id}' RETURNING role, permisos"
-                
-                updated_rows = db_query(query, [])
-                
-                if updated_rows:
-                    self._send_json_response({
-                        "message": "Permisos actualizados correctamente",
-                        "role": updated_rows[0]['role'],
-                        "permisos": permisos
-                    })
-                else:
-                    self._send_json_response({"error": "Rol no encontrado"}, 404)
             
             elif path == '/config/gastos':
                 if user_token['role'] != 'admin':
@@ -635,4 +549,3 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
         self.do_PUT()
 
 handler = GrupLomiAPI
-
