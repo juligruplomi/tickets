@@ -338,6 +338,29 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         "error": str(e)
                     }, 500)
             
+            elif path == '/admin/check-columns':
+                # Endpoint temporal para verificar columnas de la tabla gastos
+                try:
+                    rows = db_query("""
+                        SELECT column_name, data_type, is_nullable
+                        FROM information_schema.columns 
+                        WHERE table_name = 'gastos'
+                        ORDER BY ordinal_position
+                    """)
+                    
+                    columns = [dict(row) for row in rows]
+                    
+                    self._send_json_response({
+                        "success": True,
+                        "columns": columns,
+                        "total": len(columns)
+                    })
+                except Exception as e:
+                    self._send_json_response({
+                        "success": False,
+                        "error": str(e)
+                    }, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
