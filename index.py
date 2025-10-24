@@ -361,6 +361,51 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         "error": str(e)
                     }, 500)
             
+            elif path == '/admin/test-insert-foto':
+                # Endpoint temporal para probar inserción con foto
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                try:
+                    # Foto de prueba muy pequeña (un pixel rojo en base64)
+                    foto_test = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
+                    
+                    rows = db_query("""
+                        INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante)
+                        VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7)
+                        RETURNING id, tipo_gasto, descripcion, LENGTH(foto_justificante) as foto_length
+                    """, [
+                        'dieta',
+                        'TEST - Gasto de prueba con foto',
+                        'TEST',
+                        1.00,
+                        '2025-01-23',
+                        user_token['user_id'],
+                        foto_test
+                    ])
+                    
+                    if rows:
+                        gasto = dict(rows[0])
+                        self._send_json_response({
+                            "success": True,
+                            "message": "Gasto de prueba creado con foto",
+                            "gasto": gasto
+                        })
+                    else:
+                        self._send_json_response({
+                            "success": False,
+                            "error": "db_query no devolvió filas"
+                        }, 500)
+                except Exception as e:
+                    import traceback
+                    self._send_json_response({
+                        "success": False,
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    }, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
