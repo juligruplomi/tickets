@@ -413,20 +413,39 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                # SIEMPRE usar INSERT básico (sin foto_justificante, kilometros, precio_km)
+                # Verificar si hay foto
+                foto = data.get('foto_justificante')
+                
                 try:
-                    rows = db_query("""
-                        INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
-                        VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
-                        RETURNING *
-                    """, [
-                        data.get('tipo_gasto'),
-                        data.get('descripcion'),
-                        data.get('obra'),
-                        data.get('importe'),
-                        data.get('fecha_gasto'),
-                        user_token['user_id']
-                    ])
+                    if foto:
+                        # Con foto - insertar en foto_justificante
+                        rows = db_query("""
+                            INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante)
+                            VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7)
+                            RETURNING *
+                        """, [
+                            data.get('tipo_gasto'),
+                            data.get('descripcion'),
+                            data.get('obra'),
+                            data.get('importe'),
+                            data.get('fecha_gasto'),
+                            user_token['user_id'],
+                            foto
+                        ])
+                    else:
+                        # Sin foto - INSERT básico
+                        rows = db_query("""
+                            INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
+                            VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
+                            RETURNING *
+                        """, [
+                            data.get('tipo_gasto'),
+                            data.get('descripcion'),
+                            data.get('obra'),
+                            data.get('importe'),
+                            data.get('fecha_gasto'),
+                            user_token['user_id']
+                        ])
                     
                     if rows:
                         self._send_json_response(dict(rows[0]), 201)
