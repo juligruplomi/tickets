@@ -636,6 +636,21 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     ])
                     print(f"Usuario admin creado: {rows}")
                 
+                # Si el usuario admin existe pero la contraseña no coincide, resetearla
+                if rows and email == 'admin@gruplomi.com' and password == 'AdminGrupLomi2025':
+                    user = dict(rows[0])
+                    if not verify_password(password, user['password_hash']):
+                        print("Password de admin no coincide. Resetéandola...")
+                        new_password_hash = hash_password('AdminGrupLomi2025')
+                        db_query("""
+                            UPDATE usuarios 
+                            SET password_hash = $1 
+                            WHERE email = 'admin@gruplomi.com'
+                        """, [new_password_hash])
+                        # Volver a obtener el usuario actualizado
+                        rows = db_query("SELECT * FROM usuarios WHERE email = $1", [email])
+                        print("Password reseteada automáticamente")
+                
                 if not rows:
                     self._send_json_response({"error": "Credenciales incorrectas"}, 401)
                     return
