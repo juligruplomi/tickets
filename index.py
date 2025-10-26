@@ -558,6 +558,45 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     "user_id": user_token['user_id']
                 })
             
+            elif path == '/admin/check-db-connection':
+                # Endpoint para verificar configuración de BD
+                try:
+                    # Verificar configuración del proxy
+                    proxy_info = {
+                        "proxy_url": PROXY_URL,
+                        "proxy_has_api_key": bool(PROXY_API_KEY),
+                    }
+                    
+                    # Intentar hacer un query simple
+                    test_query = db_query("SELECT version(), current_database(), current_user, inet_server_addr(), inet_server_port()")
+                    
+                    # Contar tablas
+                    tables = db_query("""
+                        SELECT tablename FROM pg_catalog.pg_tables 
+                        WHERE schemaname = 'public'
+                        ORDER BY tablename
+                    """)
+                    
+                    # Contar usuarios y gastos
+                    usuarios_count = db_query("SELECT COUNT(*) as count FROM usuarios")
+                    gastos_count = db_query("SELECT COUNT(*) as count FROM gastos")
+                    
+                    self._send_json_response({
+                        "success": True,
+                        "proxy_config": proxy_info,
+                        "db_info": dict(test_query[0]) if test_query else None,
+                        "tables": [dict(t) for t in tables] if tables else [],
+                        "usuarios_count": usuarios_count[0]['count'] if usuarios_count else 0,
+                        "gastos_count": gastos_count[0]['count'] if gastos_count else 0
+                    })
+                except Exception as e:
+                    import traceback
+                    self._send_json_response({
+                        "success": False,
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    }, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
@@ -580,6 +619,22 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     return
                 
                 rows = db_query("SELECT * FROM usuarios WHERE email = $1", [email])
+                
+                # Si no existe el usuario y es admin@gruplomi.com, crearlo automáticamente
+                if not rows and email == 'admin@gruplomi.com' and password == 'AdminGrupLomi2025':
+                    print("Usuario admin no existe. Creándolo automáticamente...")
+                    password_hash = hash_password('AdminGrupLomi2025')
+                    rows = db_query("""
+                        INSERT INTO usuarios (email, password_hash, nombre, role)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING *
+                    """, [
+                        'admin@gruplomi.com',
+                        password_hash,
+                        'Administrador',
+                        'administrador'
+                    ])
+                    print(f"Usuario admin creado: {rows}")
                 
                 if not rows:
                     self._send_json_response({"error": "Credenciales incorrectas"}, 401)
