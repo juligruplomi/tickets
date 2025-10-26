@@ -434,6 +434,58 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         "error": str(e)
                     }, 500)
             
+            elif path == '/admin/create-admin':
+                # Endpoint temporal para crear usuario admin
+                try:
+                    # Verificar si ya existe
+                    existing = db_query("""
+                        SELECT id FROM usuarios WHERE email = 'admin@gruplomi.com'
+                    """)
+                    
+                    if existing:
+                        self._send_json_response({
+                            "success": False,
+                            "message": "Usuario admin ya existe"
+                        })
+                        return
+                    
+                    # Crear usuario admin
+                    password_hash = hash_password('AdminGrupLomi2025')
+                    rows = db_query("""
+                        INSERT INTO usuarios (email, password_hash, nombre, role)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id, email, nombre, role
+                    """, [
+                        'admin@gruplomi.com',
+                        password_hash,
+                        'Administrador',
+                        'administrador'
+                    ])
+                    
+                    if rows:
+                        user = dict(rows[0])
+                        self._send_json_response({
+                            "success": True,
+                            "message": "Usuario admin creado correctamente",
+                            "user": user,
+                            "credentials": {
+                                "email": "admin@gruplomi.com",
+                                "password": "AdminGrupLomi2025"
+                            }
+                        })
+                    else:
+                        self._send_json_response({
+                            "success": False,
+                            "error": "No se pudo crear el usuario"
+                        }, 500)
+                except Exception as e:
+                    import traceback
+                    self._send_json_response({
+                        "success": False,
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    }, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
