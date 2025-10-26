@@ -597,6 +597,58 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         "traceback": traceback.format_exc()
                     }, 500)
             
+            elif path == '/admin/debug-password':
+                # Endpoint temporal para verificar password hash
+                try:
+                    rows = db_query("""
+                        SELECT id, email, nombre, role, 
+                               LEFT(password_hash, 10) as hash_prefix,
+                               LENGTH(password_hash) as hash_length
+                        FROM usuarios 
+                        WHERE email = 'admin@gruplomi.com'
+                    """)
+                    
+                    if rows:
+                        user = dict(rows[0])
+                        
+                        # Intentar verificar con la contraseña esperada
+                        full_user = db_query("""
+                            SELECT password_hash FROM usuarios 
+                            WHERE email = 'admin@gruplomi.com'
+                        """)
+                        
+                        if full_user:
+                            actual_hash = full_user[0]['password_hash']
+                            test_password = 'AdminGrupLomi2025'
+                            password_matches = verify_password(test_password, actual_hash)
+                            
+                            # Generar nuevo hash para comparación
+                            new_hash = hash_password(test_password)
+                            
+                            self._send_json_response({
+                                "success": True,
+                                "user": user,
+                                "password_test": {
+                                    "matches_current_hash": password_matches,
+                                    "test_password": test_password,
+                                    "new_hash_sample": new_hash[:20] + "..."
+                                }
+                            })
+                        else:
+                            self._send_json_response({"success": False, "error": "No se pudo obtener hash"})
+                    else:
+                        self._send_json_response({
+                            "success": False,
+                            "error": "Usuario admin no existe"
+                        })
+                except Exception as e:
+                    import traceback
+                    self._send_json_response({
+                        "success": False,
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    }, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
@@ -619,37 +671,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     return
                 
                 rows = db_query("SELECT * FROM usuarios WHERE email = $1", [email])
-                
-                # Si no existe el usuario y es admin@gruplomi.com, crearlo automáticamente
-                if not rows and email == 'admin@gruplomi.com' and password == 'AdminGrupLomi2025':
-                    print("Usuario admin no existe. Creándolo automáticamente...")
-                    password_hash = hash_password('AdminGrupLomi2025')
-                    rows = db_query("""
-                        INSERT INTO usuarios (email, password_hash, nombre, role)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING *
-                    """, [
-                        'admin@gruplomi.com',
-                        password_hash,
-                        'Administrador',
-                        'administrador'
-                    ])
-                    print(f"Usuario admin creado: {rows}")
-                
-                # Si el usuario admin existe pero la contraseña no coincide, resetearla
-                if rows and email == 'admin@gruplomi.com' and password == 'AdminGrupLomi2025':
-                    user = dict(rows[0])
-                    if not verify_password(password, user['password_hash']):
-                        print("Password de admin no coincide. Resetéandola...")
-                        new_password_hash = hash_password('AdminGrupLomi2025')
-                        db_query("""
-                            UPDATE usuarios 
-                            SET password_hash = $1 
-                            WHERE email = 'admin@gruplomi.com'
-                        """, [new_password_hash])
-                        # Volver a obtener el usuario actualizado
-                        rows = db_query("SELECT * FROM usuarios WHERE email = $1", [email])
-                        print("Password reseteada automáticamente")
                 
                 if not rows:
                     self._send_json_response({"error": "Credenciales incorrectas"}, 401)
