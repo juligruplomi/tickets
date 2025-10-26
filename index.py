@@ -534,6 +534,30 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         "traceback": traceback.format_exc()
                     }, 500)
             
+            elif path == '/admin/debug-gasto':
+                # Endpoint temporal para capturar datos del formulario
+                user_token = self._verify_token()
+                if not user_token:
+                    self._send_json_response({"error": "Token requerido"}, 401)
+                    return
+                
+                data = self._get_request_data()
+                
+                self._send_json_response({
+                    "success": True,
+                    "received_data": {
+                        "tipo_gasto": data.get('tipo_gasto'),
+                        "descripcion": data.get('descripcion'),
+                        "obra": data.get('obra'),
+                        "importe": data.get('importe'),
+                        "fecha_gasto": data.get('fecha_gasto'),
+                        "has_foto": 'foto_justificante' in data,
+                        "foto_length": len(data.get('foto_justificante', '')) if data.get('foto_justificante') else 0,
+                        "all_keys": list(data.keys())
+                    },
+                    "user_id": user_token['user_id']
+                })
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
