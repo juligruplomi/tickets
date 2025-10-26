@@ -20,13 +20,27 @@ def db_query(text: str, params: list = None):
             f"{PROXY_URL}/query",
             json={"text": text, "params": params or []},
             headers={"x-api-key": PROXY_API_KEY},
-            timeout=10
+            timeout=30  # Aumentado a 30 segundos
         )
         response.raise_for_status()
         data = response.json()
-        return data.get("rows", [])
+        
+        # Debug: imprimir respuesta completa del proxy
+        print(f"Proxy response keys: {data.keys()}")
+        print(f"Proxy response: {data}")
+        
+        # El proxy puede devolver 'rows' o 'data' según el tipo de query
+        if 'rows' in data:
+            return data['rows']
+        elif 'data' in data:
+            return data['data']
+        else:
+            print(f"WARNING: Respuesta del proxy sin 'rows' ni 'data': {data}")
+            return []
     except Exception as e:
         print(f"Error en db_query: {e}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
         return []
 
 def hash_password(password: str) -> str:
