@@ -486,6 +486,40 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         "traceback": traceback.format_exc()
                     }, 500)
             
+            elif path == '/admin/check-tables':
+                # Endpoint temporal para verificar tablas
+                try:
+                    # Verificar tabla usuarios
+                    usuarios_check = db_query("""
+                        SELECT COUNT(*) as count FROM usuarios
+                    """)
+                    
+                    # Verificar tabla gastos
+                    gastos_check = db_query("""
+                        SELECT COUNT(*) as count FROM gastos
+                    """)
+                    
+                    # Verificar columnas de gastos
+                    gastos_columns = db_query("""
+                        SELECT column_name FROM information_schema.columns 
+                        WHERE table_name = 'gastos'
+                        ORDER BY ordinal_position
+                    """)
+                    
+                    self._send_json_response({
+                        "success": True,
+                        "usuarios_count": usuarios_check[0]['count'] if usuarios_check else 0,
+                        "gastos_count": gastos_check[0]['count'] if gastos_check else 0,
+                        "gastos_columns": [row['column_name'] for row in gastos_columns] if gastos_columns else []
+                    })
+                except Exception as e:
+                    import traceback
+                    self._send_json_response({
+                        "success": False,
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    }, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
@@ -544,6 +578,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 try:
                     if foto:
                         # Con foto - insertar en foto_justificante
+                        print(f"Insertando gasto CON foto para usuario {user_token['user_id']}")
                         rows = db_query("""
                             INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante)
                             VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7)
@@ -559,6 +594,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         ])
                     else:
                         # Sin foto - INSERT básico
+                        print(f"Insertando gasto SIN foto para usuario {user_token['user_id']}")
                         rows = db_query("""
                             INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
                             VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
@@ -573,13 +609,15 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         ])
                     
                     if rows:
+                        print(f"Gasto creado exitosamente: ID {rows[0]['id']}")
                         self._send_json_response(dict(rows[0]), 201)
                     else:
+                        print("ERROR: db_query no devolvió filas")
                         self._send_json_response({"error": "No se pudo insertar"}, 500)
                 except Exception as e:
                     import traceback
                     error_details = traceback.format_exc()
-                    print(f"Error completo: {error_details}")
+                    print(f"ERROR al crear gasto: {error_details}")
                     self._send_json_response({
                         "error": "Error al crear gasto", 
                         "details": str(e),
