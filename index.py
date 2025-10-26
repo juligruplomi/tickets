@@ -406,6 +406,34 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         "traceback": traceback.format_exc()
                     }, 500)
             
+            elif path == '/admin/check-admin':
+                # Endpoint temporal para verificar usuario admin
+                try:
+                    rows = db_query("""
+                        SELECT id, email, nombre, role, fecha_creacion 
+                        FROM usuarios 
+                        WHERE email = 'admin@gruplomi.com'
+                    """)
+                    
+                    if rows:
+                        user = dict(rows[0])
+                        self._send_json_response({
+                            "success": True,
+                            "user_exists": True,
+                            "user": user
+                        })
+                    else:
+                        self._send_json_response({
+                            "success": True,
+                            "user_exists": False,
+                            "message": "Usuario admin@gruplomi.com no existe en la BD"
+                        })
+                except Exception as e:
+                    self._send_json_response({
+                        "success": False,
+                        "error": str(e)
+                    }, 500)
+            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
