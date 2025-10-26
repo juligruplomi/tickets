@@ -610,6 +610,23 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
+                # Log completo de datos recibidos
+                print(f"\n{'='*50}")
+                print(f"POST /gastos - Usuario: {user_token['user_id']}")
+                print(f"Datos recibidos:")
+                print(f"- tipo_gasto: {data.get('tipo_gasto')}")
+                print(f"- descripcion: {data.get('descripcion')}")
+                print(f"- obra: {data.get('obra')}")
+                print(f"- importe: {data.get('importe')} (tipo: {type(data.get('importe'))})")
+                print(f"- fecha_gasto: {data.get('fecha_gasto')}")
+                print(f"- foto_justificante presente: {'foto_justificante' in data}")
+                if 'foto_justificante' in data:
+                    foto_len = len(data.get('foto_justificante', ''))
+                    print(f"- foto_justificante length: {foto_len}")
+                    print(f"- foto_justificante primeros 50 chars: {data.get('foto_justificante', '')[:50]}")
+                print(f"- Todas las keys: {list(data.keys())}")
+                print(f"{'='*50}\n")
+                
                 # Verificar si hay foto
                 foto = data.get('foto_justificante')
                 
@@ -645,6 +662,10 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                             data.get('fecha_gasto'),
                             user_token['user_id']
                         ])
+                    
+                    print(f"Resultado db_query: {rows}")
+                    print(f"Tipo de rows: {type(rows)}")
+                    print(f"Length de rows: {len(rows) if rows else 0}")
                     
                     if rows:
                         print(f"Gasto creado exitosamente: ID {rows[0]['id']}")
