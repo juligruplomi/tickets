@@ -20,14 +20,10 @@ def db_query(text: str, params: list = None):
             f"{PROXY_URL}/query",
             json={"text": text, "params": params or []},
             headers={"x-api-key": PROXY_API_KEY},
-            timeout=30  # Aumentado a 30 segundos
+            timeout=30
         )
         response.raise_for_status()
         data = response.json()
-        
-        # Debug: imprimir respuesta completa del proxy
-        print(f"Proxy response keys: {data.keys()}")
-        print(f"Proxy response: {data}")
         
         # El proxy puede devolver 'rows' o 'data' según el tipo de query
         if 'rows' in data:
@@ -35,12 +31,9 @@ def db_query(text: str, params: list = None):
         elif 'data' in data:
             return data['data']
         else:
-            print(f"WARNING: Respuesta del proxy sin 'rows' ni 'data': {data}")
             return []
     except Exception as e:
         print(f"Error en db_query: {e}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}")
         return []
 
 def hash_password(password: str) -> str:
@@ -305,350 +298,6 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     }
                 })
             
-            elif path == '/admin/migrate-db':
-                # Endpoint temporal para agregar columnas a la tabla gastos
-                user_token = self._verify_token()
-                if not user_token or user_token['role'] != 'admin':
-                    self._send_json_response({"error": "Solo admin puede ejecutar migraciones"}, 403)
-                    return
-                
-                try:
-                    # Agregar columnas si no existen
-                    db_query("""
-                        ALTER TABLE gastos 
-                        ADD COLUMN IF NOT EXISTS foto_justificante TEXT,
-                        ADD COLUMN IF NOT EXISTS kilometros DECIMAL(10,2),
-                        ADD COLUMN IF NOT EXISTS precio_km DECIMAL(10,3)
-                    """)
-                    
-                    self._send_json_response({
-                        "success": True,
-                        "message": "Migración completada: columnas foto_justificante, kilometros, precio_km agregadas"
-                    })
-                except Exception as e:
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e)
-                    }, 500)
-            
-            elif path == '/admin/reset-password':
-                # Endpoint temporal para resetear contraseña del admin
-                try:
-                    # Resetear contraseña del admin
-                    new_password_hash = hash_password('AdminGrupLomi2025')
-                    db_query("""
-                        UPDATE usuarios 
-                        SET password_hash = $1 
-                        WHERE email = 'admin@gruplomi.com'
-                    """, [new_password_hash])
-                    
-                    self._send_json_response({
-                        "success": True,
-                        "message": "Contraseña de admin reseteada a: AdminGrupLomi2025"
-                    })
-                except Exception as e:
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e)
-                    }, 500)
-            
-            elif path == '/admin/check-columns':
-                # Endpoint temporal para verificar columnas de la tabla gastos
-                try:
-                    rows = db_query("""
-                        SELECT column_name, data_type, is_nullable
-                        FROM information_schema.columns 
-                        WHERE table_name = 'gastos'
-                        ORDER BY ordinal_position
-                    """)
-                    
-                    columns = [dict(row) for row in rows]
-                    
-                    self._send_json_response({
-                        "success": True,
-                        "columns": columns,
-                        "total": len(columns)
-                    })
-                except Exception as e:
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e)
-                    }, 500)
-            
-            elif path == '/admin/test-insert-foto':
-                # Endpoint temporal para probar inserción con foto
-                user_token = self._verify_token()
-                if not user_token:
-                    self._send_json_response({"error": "Token requerido"}, 401)
-                    return
-                
-                try:
-                    # Foto de prueba muy pequeña (un pixel rojo en base64)
-                    foto_test = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
-                    
-                    rows = db_query("""
-                        INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante)
-                        VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7)
-                        RETURNING id, tipo_gasto, descripcion, LENGTH(foto_justificante) as foto_length
-                    """, [
-                        'dieta',
-                        'TEST - Gasto de prueba con foto',
-                        'TEST',
-                        1.00,
-                        '2025-01-23',
-                        user_token['user_id'],
-                        foto_test
-                    ])
-                    
-                    if rows:
-                        gasto = dict(rows[0])
-                        self._send_json_response({
-                            "success": True,
-                            "message": "Gasto de prueba creado con foto",
-                            "gasto": gasto
-                        })
-                    else:
-                        self._send_json_response({
-                            "success": False,
-                            "error": "db_query no devolvió filas"
-                        }, 500)
-                except Exception as e:
-                    import traceback
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e),
-                        "traceback": traceback.format_exc()
-                    }, 500)
-            
-            elif path == '/admin/check-admin':
-                # Endpoint temporal para verificar usuario admin
-                try:
-                    rows = db_query("""
-                        SELECT id, email, nombre, role, fecha_creacion 
-                        FROM usuarios 
-                        WHERE email = 'admin@gruplomi.com'
-                    """)
-                    
-                    if rows:
-                        user = dict(rows[0])
-                        self._send_json_response({
-                            "success": True,
-                            "user_exists": True,
-                            "user": user
-                        })
-                    else:
-                        self._send_json_response({
-                            "success": True,
-                            "user_exists": False,
-                            "message": "Usuario admin@gruplomi.com no existe en la BD"
-                        })
-                except Exception as e:
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e)
-                    }, 500)
-            
-            elif path == '/admin/create-admin':
-                # Endpoint temporal para crear usuario admin
-                try:
-                    # Verificar si ya existe
-                    existing = db_query("""
-                        SELECT id FROM usuarios WHERE email = 'admin@gruplomi.com'
-                    """)
-                    
-                    if existing:
-                        self._send_json_response({
-                            "success": False,
-                            "message": "Usuario admin ya existe"
-                        })
-                        return
-                    
-                    # Crear usuario admin
-                    password_hash = hash_password('AdminGrupLomi2025')
-                    rows = db_query("""
-                        INSERT INTO usuarios (email, password_hash, nombre, role)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id, email, nombre, role
-                    """, [
-                        'admin@gruplomi.com',
-                        password_hash,
-                        'Administrador',
-                        'administrador'
-                    ])
-                    
-                    if rows:
-                        user = dict(rows[0])
-                        self._send_json_response({
-                            "success": True,
-                            "message": "Usuario admin creado correctamente",
-                            "user": user,
-                            "credentials": {
-                                "email": "admin@gruplomi.com",
-                                "password": "AdminGrupLomi2025"
-                            }
-                        })
-                    else:
-                        self._send_json_response({
-                            "success": False,
-                            "error": "No se pudo crear el usuario"
-                        }, 500)
-                except Exception as e:
-                    import traceback
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e),
-                        "traceback": traceback.format_exc()
-                    }, 500)
-            
-            elif path == '/admin/check-tables':
-                # Endpoint temporal para verificar tablas
-                try:
-                    # Verificar tabla usuarios
-                    usuarios_check = db_query("""
-                        SELECT COUNT(*) as count FROM usuarios
-                    """)
-                    
-                    # Verificar tabla gastos
-                    gastos_check = db_query("""
-                        SELECT COUNT(*) as count FROM gastos
-                    """)
-                    
-                    # Verificar columnas de gastos
-                    gastos_columns = db_query("""
-                        SELECT column_name FROM information_schema.columns 
-                        WHERE table_name = 'gastos'
-                        ORDER BY ordinal_position
-                    """)
-                    
-                    self._send_json_response({
-                        "success": True,
-                        "usuarios_count": usuarios_check[0]['count'] if usuarios_check else 0,
-                        "gastos_count": gastos_check[0]['count'] if gastos_check else 0,
-                        "gastos_columns": [row['column_name'] for row in gastos_columns] if gastos_columns else []
-                    })
-                except Exception as e:
-                    import traceback
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e),
-                        "traceback": traceback.format_exc()
-                    }, 500)
-            
-            elif path == '/admin/debug-gasto':
-                # Endpoint temporal para capturar datos del formulario
-                user_token = self._verify_token()
-                if not user_token:
-                    self._send_json_response({"error": "Token requerido"}, 401)
-                    return
-                
-                data = self._get_request_data()
-                
-                self._send_json_response({
-                    "success": True,
-                    "received_data": {
-                        "tipo_gasto": data.get('tipo_gasto'),
-                        "descripcion": data.get('descripcion'),
-                        "obra": data.get('obra'),
-                        "importe": data.get('importe'),
-                        "fecha_gasto": data.get('fecha_gasto'),
-                        "has_foto": 'foto_justificante' in data,
-                        "foto_length": len(data.get('foto_justificante', '')) if data.get('foto_justificante') else 0,
-                        "all_keys": list(data.keys())
-                    },
-                    "user_id": user_token['user_id']
-                })
-            
-            elif path == '/admin/check-db-connection':
-                # Endpoint para verificar configuración de BD
-                try:
-                    # Verificar configuración del proxy
-                    proxy_info = {
-                        "proxy_url": PROXY_URL,
-                        "proxy_has_api_key": bool(PROXY_API_KEY),
-                    }
-                    
-                    # Intentar hacer un query simple
-                    test_query = db_query("SELECT version(), current_database(), current_user, inet_server_addr(), inet_server_port()")
-                    
-                    # Contar tablas
-                    tables = db_query("""
-                        SELECT tablename FROM pg_catalog.pg_tables 
-                        WHERE schemaname = 'public'
-                        ORDER BY tablename
-                    """)
-                    
-                    # Contar usuarios y gastos
-                    usuarios_count = db_query("SELECT COUNT(*) as count FROM usuarios")
-                    gastos_count = db_query("SELECT COUNT(*) as count FROM gastos")
-                    
-                    self._send_json_response({
-                        "success": True,
-                        "proxy_config": proxy_info,
-                        "db_info": dict(test_query[0]) if test_query else None,
-                        "tables": [dict(t) for t in tables] if tables else [],
-                        "usuarios_count": usuarios_count[0]['count'] if usuarios_count else 0,
-                        "gastos_count": gastos_count[0]['count'] if gastos_count else 0
-                    })
-                except Exception as e:
-                    import traceback
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e),
-                        "traceback": traceback.format_exc()
-                    }, 500)
-            
-            elif path == '/admin/debug-password':
-                # Endpoint temporal para verificar password hash
-                try:
-                    rows = db_query("""
-                        SELECT id, email, nombre, role, 
-                               LEFT(password_hash, 10) as hash_prefix,
-                               LENGTH(password_hash) as hash_length
-                        FROM usuarios 
-                        WHERE email = 'admin@gruplomi.com'
-                    """)
-                    
-                    if rows:
-                        user = dict(rows[0])
-                        
-                        # Intentar verificar con la contraseña esperada
-                        full_user = db_query("""
-                            SELECT password_hash FROM usuarios 
-                            WHERE email = 'admin@gruplomi.com'
-                        """)
-                        
-                        if full_user:
-                            actual_hash = full_user[0]['password_hash']
-                            test_password = 'AdminGrupLomi2025'
-                            password_matches = verify_password(test_password, actual_hash)
-                            
-                            # Generar nuevo hash para comparación
-                            new_hash = hash_password(test_password)
-                            
-                            self._send_json_response({
-                                "success": True,
-                                "user": user,
-                                "password_test": {
-                                    "matches_current_hash": password_matches,
-                                    "test_password": test_password,
-                                    "new_hash_sample": new_hash[:20] + "..."
-                                }
-                            })
-                        else:
-                            self._send_json_response({"success": False, "error": "No se pudo obtener hash"})
-                    else:
-                        self._send_json_response({
-                            "success": False,
-                            "error": "Usuario admin no existe"
-                        })
-                except Exception as e:
-                    import traceback
-                    self._send_json_response({
-                        "success": False,
-                        "error": str(e),
-                        "traceback": traceback.format_exc()
-                    }, 500)
-            
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
                 
@@ -701,30 +350,12 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Token requerido"}, 401)
                     return
                 
-                # Log completo de datos recibidos
-                print(f"\n{'='*50}")
-                print(f"POST /gastos - Usuario: {user_token['user_id']}")
-                print(f"Datos recibidos:")
-                print(f"- tipo_gasto: {data.get('tipo_gasto')}")
-                print(f"- descripcion: {data.get('descripcion')}")
-                print(f"- obra: {data.get('obra')}")
-                print(f"- importe: {data.get('importe')} (tipo: {type(data.get('importe'))})")
-                print(f"- fecha_gasto: {data.get('fecha_gasto')}")
-                print(f"- foto_justificante presente: {'foto_justificante' in data}")
-                if 'foto_justificante' in data:
-                    foto_len = len(data.get('foto_justificante', ''))
-                    print(f"- foto_justificante length: {foto_len}")
-                    print(f"- foto_justificante primeros 50 chars: {data.get('foto_justificante', '')[:50]}")
-                print(f"- Todas las keys: {list(data.keys())}")
-                print(f"{'='*50}\n")
-                
                 # Verificar si hay foto
                 foto = data.get('foto_justificante')
                 
                 try:
                     if foto:
-                        # Con foto - insertar en foto_justificante
-                        print(f"Insertando gasto CON foto para usuario {user_token['user_id']}")
+                        # Con foto
                         rows = db_query("""
                             INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante)
                             VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7)
@@ -739,8 +370,7 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                             foto
                         ])
                     else:
-                        # Sin foto - INSERT básico
-                        print(f"Insertando gasto SIN foto para usuario {user_token['user_id']}")
+                        # Sin foto
                         rows = db_query("""
                             INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
                             VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
@@ -754,25 +384,13 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                             user_token['user_id']
                         ])
                     
-                    print(f"Resultado db_query: {rows}")
-                    print(f"Tipo de rows: {type(rows)}")
-                    print(f"Length de rows: {len(rows) if rows else 0}")
-                    
                     if rows:
-                        print(f"Gasto creado exitosamente: ID {rows[0]['id']}")
                         self._send_json_response(dict(rows[0]), 201)
                     else:
-                        print("ERROR: db_query no devolvió filas")
-                        self._send_json_response({"error": "No se pudo insertar"}, 500)
+                        self._send_json_response({"error": "No se pudo crear el gasto"}, 500)
                 except Exception as e:
-                    import traceback
-                    error_details = traceback.format_exc()
-                    print(f"ERROR al crear gasto: {error_details}")
-                    self._send_json_response({
-                        "error": "Error al crear gasto", 
-                        "details": str(e),
-                        "type": type(e).__name__
-                    }, 500)
+                    print(f"Error al crear gasto: {e}")
+                    self._send_json_response({"error": "Error al crear gasto"}, 500)
             
             elif path == '/usuarios':
                 user_token = self._verify_token()
