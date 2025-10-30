@@ -61,6 +61,44 @@ def verify_token(token: str) -> Optional[Dict]:
     except:
         return None
 
+def get_user_permissions(user_role: str) -> list:
+    """Obtiene los permisos de un rol desde la base de datos"""
+    try:
+        rows = db_query("SELECT permisos FROM roles_permisos WHERE role_id = $1 AND activo = true", [user_role])
+        
+        if rows:
+            permisos = rows[0]['permisos']
+            # Si es string JSON, convertir a lista
+            if isinstance(permisos, str):
+                import json as json_module
+                permisos = json_module.loads(permisos)
+            return permisos if isinstance(permisos, list) else []
+        else:
+            # Fallback a permisos estáticos si no está en BD
+            default_permisos = {
+                'admin': ['crear', 'leer', 'actualizar', 'eliminar', 'aprobar', 'supervisar', 'exportar', 'validar', 'configurar'],
+                'supervisor': ['leer', 'aprobar', 'supervisar'],
+                'empleado': ['crear', 'leer_propio'],
+                'contabilidad': ['leer', 'exportar', 'validar']
+            }
+            return default_permisos.get(user_role, [])
+    except Exception as e:
+        print(f"Error getting permissions for role {user_role}: {e}")
+        return []
+
+def user_has_permission(user_token: Dict, required_permission: str) -> bool:
+    """Verifica si un usuario tiene un permiso específico"""
+    user_role = user_token.get('role', '')
+    
+    # Admin siempre tiene todos los permisos
+    if user_role == 'admin':
+        return True
+    
+    # Obtener permisos del rol
+    permissions = get_user_permissions(user_role)
+    
+    return required_permission in permissions
+
 class GrupLomiAPI(BaseHTTPRequestHandler):
     
     def _set_cors_headers(self):
@@ -194,13 +232,45 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                # Roles estáticos
-                self._send_json_response([
-                    {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
-                    {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
-                    {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
-                    {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
-                ])
+                # Leer roles desde la base de datos
+                try:
+                    rows = db_query("SELECT role_id, nombre, permisos, activo FROM roles_permisos WHERE activo = true ORDER BY role_id")
+                    
+                    if rows:
+                        # Convertir a formato que espera el frontend
+                        roles_list = []
+                        for row in rows:
+                            role_dict = dict(row)
+                            # Asegurar que permisos es un array
+                            permisos = role_dict.get('permisos', [])
+                            if isinstance(permisos, str):
+                                import json
+                                permisos = json.loads(permisos)
+                            
+                            roles_list.append({
+                                "id": role_dict['role_id'],
+                                "nombre": role_dict['nombre'],
+                                "permisos": permisos
+                            })
+                        
+                        self._send_json_response(roles_list)
+                    else:
+                        # Fallback a roles estáticos si no hay en BD
+                        self._send_json_response([
+                            {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
+                            {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
+                            {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
+                            {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
+                        ])
+                except Exception as e:
+                    print(f"Error loading roles from DB: {e}")
+                    # Fallback a roles estáticos
+                    self._send_json_response([
+                        {"id": "admin", "nombre": "Administrador", "permisos": ["crear", "leer", "actualizar", "eliminar", "aprobar", "configurar"]},
+                        {"id": "supervisor", "nombre": "Supervisor", "permisos": ["leer", "aprobar", "supervisar"]},
+                        {"id": "empleado", "nombre": "Empleado", "permisos": ["crear", "leer_propio"]},
+                        {"id": "contabilidad", "nombre": "Contabilidad", "permisos": ["leer", "exportar", "validar"]}
+                    ])
             
             elif path == '/reportes/dashboard':
                 user_token = self._verify_token()
@@ -523,19 +593,62 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                     self._send_json_response({"error": "Sin permisos"}, 403)
                     return
                 
-                # Los roles son estáticos, simplemente devolvemos success
-                # En una implementación real, aquí guardarías en una tabla de roles
+                # Validar que el rol existe
                 valid_roles = ['admin', 'supervisor', 'empleado', 'contabilidad']
                 
                 if role_id not in valid_roles:
                     self._send_json_response({"error": "Rol no válido"}, 404)
                     return
                 
-                self._send_json_response({
-                    "message": "Permisos actualizados",
-                    "role_id": role_id,
-                    "permisos": data.get('permisos', [])
-                })
+                # Obtener permisos del body
+                permisos = data.get('permisos', [])
+                
+                # Convertir permisos a JSON string para PostgreSQL JSONB
+                import json as json_module
+                permisos_json = json_module.dumps(permisos)
+                
+                try:
+                    # Actualizar en la base de datos usando CAST a jsonb
+                    # No podemos usar parámetros para JSONB, tenemos que construir el query
+                    query = f"UPDATE roles_permisos SET permisos = '{permisos_json}'::jsonb, updated_at = CURRENT_TIMESTAMP WHERE role_id = '{role_id}' RETURNING role_id, nombre, permisos"
+                    
+                    updated_rows = db_query(query)
+                    
+                    if updated_rows:
+                        role_dict = dict(updated_rows[0])
+                        permisos_result = role_dict.get('permisos', [])
+                        if isinstance(permisos_result, str):
+                            permisos_result = json_module.loads(permisos_result)
+                        
+                        self._send_json_response({
+                            "success": True,
+                            "message": "Permisos actualizados correctamente",
+                            "role_id": role_dict['role_id'],
+                            "nombre": role_dict['nombre'],
+                            "permisos": permisos_result
+                        })
+                    else:
+                        # Si no se actualizó, es porque no existe, intentar insertar
+                        query_insert = f"INSERT INTO roles_permisos (role_id, nombre, permisos) VALUES ('{role_id}', '{role_id.capitalize()}', '{permisos_json}'::jsonb) RETURNING role_id, nombre, permisos"
+                        inserted_rows = db_query(query_insert)
+                        
+                        if inserted_rows:
+                            self._send_json_response({
+                                "success": True,
+                                "message": "Rol creado correctamente",
+                                "role_id": role_id,
+                                "permisos": permisos
+                            })
+                        else:
+                            self._send_json_response({"error": "No se pudo actualizar el rol"}, 500)
+                except Exception as e:
+                    print(f"Error updating role: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self._send_json_response({
+                        "error": "Error al actualizar permisos",
+                        "details": str(e)
+                    }, 500)
             
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
