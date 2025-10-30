@@ -325,48 +325,104 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 self._send_json_response([dict(r) for r in rows])
             
             elif path == '/config' or path == '/config/sistema':
-                self._send_json_response({
-                    "modo_oscuro": False,
-                    "idioma_principal": "es",
-                    "nombre_empresa": "GrupLomi",
-                    "logo_url": "",
-                    "color_primario": "#0066CC",
-                    "color_secundario": "#f8f9fa",
-                    "color_acento": "#28a745",
-                    "metodos_pago": ["efectivo", "tarjeta", "transferencia"],
-                    "limite_gasto_diario": 500,
-                    "limite_gasto_mensual": 5000,
-                    "limite_aprobacion_supervisor": 1000,
-                    "requiere_justificante": True,
-                    "categorias_gasto": [
-                        {"id": "dieta", "nombre": "Dietas", "activo": True},
-                        {"id": "gasolina", "nombre": "Combustible", "activo": True},
-                        {"id": "aparcamiento", "nombre": "Aparcamiento", "activo": True},
-                        {"id": "hotel", "nombre": "Alojamiento", "activo": True},
-                        {"id": "transporte", "nombre": "Transporte", "activo": True},
-                        {"id": "material", "nombre": "Material", "activo": True},
-                        {"id": "formacion", "nombre": "Formación", "activo": True},
-                        {"id": "otros", "nombre": "Otros", "activo": True}
-                    ],
-                    "idiomas": {
-                        "es": {"activo": True, "nombre": "Español"},
-                        "en": {"activo": True, "nombre": "English"},
-                        "ca": {"activo": True, "nombre": "Català"},
-                        "de": {"activo": True, "nombre": "Deutsch"},
-                        "it": {"activo": True, "nombre": "Italiano"},
-                        "pt": {"activo": True, "nombre": "Português"}
-                    },
-                    "notificaciones": {
-                        "email_activo": False,
-                        "smtp_host": "",
-                        "smtp_port": 587,
-                        "eventos": {
-                            "nuevo_gasto": True,
-                            "gasto_aprobado": True,
-                            "gasto_rechazado": True
+                # Leer configuración desde base de datos (tabla clave-valor)
+                try:
+                    rows = db_query("SELECT clave, valor FROM config_sistema")
+                    
+                    # Convertir clave-valor a diccionario
+                    config_dict = {}
+                    if rows:
+                        for row in rows:
+                            config_dict[row['clave']] = row['valor']
+                    
+                    # Construir respuesta con estructura esperada por el frontend
+                    self._send_json_response({
+                        "modo_oscuro": config_dict.get('modo_oscuro', 'false') == 'true',
+                        "idioma_principal": config_dict.get('idioma_principal', 'es'),
+                        "nombre_empresa": config_dict.get('empresa_nombre', 'GrupLomi'),
+                        "logo_url": config_dict.get('logo_url', ''),
+                        "color_primario": config_dict.get('color_primario', '#0066CC'),
+                        "color_secundario": config_dict.get('color_secundario', '#f8f9fa'),
+                        "color_acento": config_dict.get('color_acento', '#28a745'),
+                        "metodos_pago": ["efectivo", "tarjeta", "transferencia"],
+                        "limite_gasto_diario": float(config_dict.get('limite_dieta', '50')),
+                        "limite_gasto_mensual": 5000,
+                        "limite_aprobacion_supervisor": 1000,
+                        "requiere_justificante": True,
+                        "categorias_gasto": [
+                            {"id": "dieta", "nombre": "Dietas", "activo": True},
+                            {"id": "gasolina", "nombre": "Combustible", "activo": True},
+                            {"id": "aparcamiento", "nombre": "Aparcamiento", "activo": True},
+                            {"id": "hotel", "nombre": "Alojamiento", "activo": True},
+                            {"id": "transporte", "nombre": "Transporte", "activo": True},
+                            {"id": "material", "nombre": "Material", "activo": True},
+                            {"id": "formacion", "nombre": "Formación", "activo": True},
+                            {"id": "otros", "nombre": "Otros", "activo": True}
+                        ],
+                        "idiomas": {
+                            "es": {"activo": True, "nombre": "Español"},
+                            "en": {"activo": True, "nombre": "English"},
+                            "ca": {"activo": True, "nombre": "Català"},
+                            "de": {"activo": True, "nombre": "Deutsch"},
+                            "it": {"activo": True, "nombre": "Italiano"},
+                            "pt": {"activo": True, "nombre": "Português"}
+                        },
+                        "notificaciones": {
+                            "email_activo": False,
+                            "smtp_host": "",
+                            "smtp_port": 587,
+                            "eventos": {
+                                "nuevo_gasto": True,
+                                "gasto_aprobado": True,
+                                "gasto_rechazado": True
+                            }
                         }
-                    }
-                })
+                    })
+                except Exception as e:
+                    print(f"Error loading config: {e}")
+                    # Fallback a configuración estática
+                    self._send_json_response({
+                        "modo_oscuro": False,
+                        "idioma_principal": "es",
+                        "nombre_empresa": "GrupLomi",
+                        "logo_url": "",
+                        "color_primario": "#0066CC",
+                        "color_secundario": "#f8f9fa",
+                        "color_acento": "#28a745",
+                        "metodos_pago": ["efectivo", "tarjeta", "transferencia"],
+                        "limite_gasto_diario": 500,
+                        "limite_gasto_mensual": 5000,
+                        "limite_aprobacion_supervisor": 1000,
+                        "requiere_justificante": True,
+                        "categorias_gasto": [
+                            {"id": "dieta", "nombre": "Dietas", "activo": True},
+                            {"id": "gasolina", "nombre": "Combustible", "activo": True},
+                            {"id": "aparcamiento", "nombre": "Aparcamiento", "activo": True},
+                            {"id": "hotel", "nombre": "Alojamiento", "activo": True},
+                            {"id": "transporte", "nombre": "Transporte", "activo": True},
+                            {"id": "material", "nombre": "Material", "activo": True},
+                            {"id": "formacion", "nombre": "Formación", "activo": True},
+                            {"id": "otros", "nombre": "Otros", "activo": True}
+                        ],
+                        "idiomas": {
+                            "es": {"activo": True, "nombre": "Español"},
+                            "en": {"activo": True, "nombre": "English"},
+                            "ca": {"activo": True, "nombre": "Català"},
+                            "de": {"activo": True, "nombre": "Deutsch"},
+                            "it": {"activo": True, "nombre": "Italiano"},
+                            "pt": {"activo": True, "nombre": "Português"}
+                        },
+                        "notificaciones": {
+                            "email_activo": False,
+                            "smtp_host": "",
+                            "smtp_port": 587,
+                            "eventos": {
+                                "nuevo_gasto": True,
+                                "gasto_aprobado": True,
+                                "gasto_rechazado": True
+                            }
+                        }
+                    })
             
             else:
                 self._send_json_response({"error": "Endpoint no encontrado"}, 404)
@@ -565,12 +621,170 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 else:
                     self._send_json_response({"error": "Usuario no encontrado"}, 404)
             
+            elif path == '/config/sistema':
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Solo admin puede modificar configuración del sistema"}, 403)
+                    return
+                
+                # Actualizar configuración general del sistema
+                try:
+                    updated_count = 0
+                    
+                    # Modo oscuro
+                    if 'modo_oscuro' in data:
+                        valor = 'true' if data['modo_oscuro'] else 'false'
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'modo_oscuro'",
+                            [valor]
+                        )
+                        updated_count += 1
+                    
+                    # Idioma principal
+                    if 'idioma_principal' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'idioma_principal'",
+                            [data['idioma_principal']]
+                        )
+                        updated_count += 1
+                    
+                    # Nombre empresa
+                    if 'nombre_empresa' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'empresa_nombre'",
+                            [data['nombre_empresa']]
+                        )
+                        updated_count += 1
+                    
+                    # Logo URL
+                    if 'logo_url' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'logo_url'",
+                            [data['logo_url']]
+                        )
+                        updated_count += 1
+                    
+                    # Colores
+                    if 'color_primario' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'color_primario'",
+                            [data['color_primario']]
+                        )
+                        updated_count += 1
+                    
+                    if 'color_secundario' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'color_secundario'",
+                            [data['color_secundario']]
+                        )
+                        updated_count += 1
+                    
+                    if 'color_acento' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'color_acento'",
+                            [data['color_acento']]
+                        )
+                        updated_count += 1
+                    
+                    # Límites de gastos
+                    if 'limite_dieta' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'limite_dieta'",
+                            [str(data['limite_dieta'])]
+                        )
+                        updated_count += 1
+                    
+                    if 'limite_gasolina' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'limite_gasolina'",
+                            [str(data['limite_gasolina'])]
+                        )
+                        updated_count += 1
+                    
+                    if 'limite_aparcamiento' in data:
+                        db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'limite_aparcamiento'",
+                            [str(data['limite_aparcamiento'])]
+                        )
+                        updated_count += 1
+                    
+                    self._send_json_response({
+                        "success": True,
+                        "message": f"Configuración del sistema actualizada correctamente ({updated_count} campos)",
+                        "campos_actualizados": updated_count
+                    })
+                except Exception as e:
+                    print(f"Error updating sistema config: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self._send_json_response({
+                        "error": "Error al actualizar configuración del sistema",
+                        "details": str(e)
+                    }, 500)
+            
             elif path == '/config/gastos':
                 if user_token['role'] != 'admin':
                     self._send_json_response({"error": "Solo admin"}, 403)
                     return
                 
                 self._send_json_response({"message": "Configuración actualizada"})
+            
+            elif path == '/config/empresa':
+                if user_token['role'] != 'admin':
+                    self._send_json_response({"error": "Solo admin"}, 403)
+                    return
+                
+                # Actualizar configuración de empresa en tabla clave-valor
+                try:
+                    updated_count = 0
+                    
+                    # Actualizar nombre de empresa
+                    if 'nombre' in data:
+                        result = db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'empresa_nombre'",
+                            [data['nombre']]
+                        )
+                        updated_count += 1
+                    
+                    # Actualizar logo
+                    if 'logo_url' in data:
+                        result = db_query(
+                            "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'logo_url'",
+                            [data['logo_url']]
+                        )
+                        updated_count += 1
+                    
+                    # Actualizar colores
+                    if 'colores' in data:
+                        colores = data['colores']
+                        if 'primario' in colores:
+                            db_query(
+                                "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'color_primario'",
+                                [colores['primario']]
+                            )
+                            updated_count += 1
+                        if 'secundario' in colores:
+                            db_query(
+                                "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'color_secundario'",
+                                [colores['secundario']]
+                            )
+                            updated_count += 1
+                        if 'acento' in colores:
+                            db_query(
+                                "UPDATE config_sistema SET valor = $1, fecha_modificacion = CURRENT_TIMESTAMP WHERE clave = 'color_acento'",
+                                [colores['acento']]
+                            )
+                            updated_count += 1
+                    
+                    self._send_json_response({
+                        "success": True,
+                        "message": f"Configuración de empresa actualizada ({updated_count} campos)"
+                    })
+                except Exception as e:
+                    print(f"Error updating empresa config: {e}")
+                    self._send_json_response({
+                        "error": "Error al actualizar configuración",
+                        "details": str(e)
+                    }, 500)
             
             elif path == '/config/notificaciones':
                 if user_token['role'] != 'admin':
