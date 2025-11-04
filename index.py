@@ -478,37 +478,85 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                 
                 # Verificar si hay foto
                 foto = data.get('foto_justificante')
+                tipo_gasto = data.get('tipo_gasto')
+                
+                # Calcular importe para combustible
+                importe = data.get('importe')
+                kilometros = data.get('kilometros')
+                precio_km = data.get('precio_km')
+                
+                if tipo_gasto == 'gasolina':
+                    # Para combustible, calcular importe automáticamente
+                    if kilometros and precio_km:
+                        importe = float(kilometros) * float(precio_km)
+                    else:
+                        self._send_json_response({"error": "Para combustible se requieren kilómetros y precio por km"}, 400)
+                        return
                 
                 try:
-                    if foto:
-                        # Con foto
-                        rows = db_query("""
-                            INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante)
-                            VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7)
-                            RETURNING *
-                        """, [
-                            data.get('tipo_gasto'),
-                            data.get('descripcion'),
-                            data.get('obra'),
-                            data.get('importe'),
-                            data.get('fecha_gasto'),
-                            user_token['user_id'],
-                            foto
-                        ])
+                    # Construir query dinámicamente según los campos disponibles
+                    if tipo_gasto == 'gasolina':
+                        # Gasto de combustible con kilometros y precio_km
+                        if foto:
+                            rows = db_query("""
+                                INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante, kilometros, precio_km)
+                                VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8, $9)
+                                RETURNING *
+                            """, [
+                                tipo_gasto,
+                                data.get('descripcion'),
+                                data.get('obra'),
+                                importe,
+                                data.get('fecha_gasto'),
+                                user_token['user_id'],
+                                foto,
+                                float(kilometros),
+                                float(precio_km)
+                            ])
+                        else:
+                            rows = db_query("""
+                                INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, kilometros, precio_km)
+                                VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7, $8)
+                                RETURNING *
+                            """, [
+                                tipo_gasto,
+                                data.get('descripcion'),
+                                data.get('obra'),
+                                importe,
+                                data.get('fecha_gasto'),
+                                user_token['user_id'],
+                                float(kilometros),
+                                float(precio_km)
+                            ])
                     else:
-                        # Sin foto
-                        rows = db_query("""
-                            INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
-                            VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
-                            RETURNING *
-                        """, [
-                            data.get('tipo_gasto'),
-                            data.get('descripcion'),
-                            data.get('obra'),
-                            data.get('importe'),
-                            data.get('fecha_gasto'),
-                            user_token['user_id']
-                        ])
+                        # Otros tipos de gasto (sin kilometros/precio_km)
+                        if foto:
+                            rows = db_query("""
+                                INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado, foto_justificante)
+                                VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7)
+                                RETURNING *
+                            """, [
+                                tipo_gasto,
+                                data.get('descripcion'),
+                                data.get('obra'),
+                                float(importe) if importe else 0,
+                                data.get('fecha_gasto'),
+                                user_token['user_id'],
+                                foto
+                            ])
+                        else:
+                            rows = db_query("""
+                                INSERT INTO gastos (tipo_gasto, descripcion, obra, importe, fecha_gasto, creado_por, estado)
+                                VALUES ($1, $2, $3, $4, $5, $6, 'pendiente')
+                                RETURNING *
+                            """, [
+                                tipo_gasto,
+                                data.get('descripcion'),
+                                data.get('obra'),
+                                float(importe) if importe else 0,
+                                data.get('fecha_gasto'),
+                                user_token['user_id']
+                            ])
                     
                     if rows:
                         self._send_json_response(dict(rows[0]), 201)
@@ -516,7 +564,9 @@ class GrupLomiAPI(BaseHTTPRequestHandler):
                         self._send_json_response({"error": "No se pudo crear el gasto"}, 500)
                 except Exception as e:
                     print(f"Error al crear gasto: {e}")
-                    self._send_json_response({"error": "Error al crear gasto"}, 500)
+                    import traceback
+                    traceback.print_exc()
+                    self._send_json_response({"error": "No se pudo crear el gasto", "details": str(e)}, 500)
             
             elif path == '/usuarios':
                 user_token = self._verify_token()
